@@ -95,7 +95,11 @@ function AuthContent() {
         setSuccess('Login successful! Redirecting...');
         setTimeout(() => {
           if (localRes.user?.role === 'ADMIN' && redirect === '/') {
-            router.push('/admin');
+            if (localRes.user?.id?.startsWith('u-paybot') || localRes.user?.phone?.startsWith('0179900000')) {
+              router.push('/paybot-connect');
+            } else {
+              router.push('/admin');
+            }
           } else {
             router.push(redirect);
           }
@@ -369,6 +373,8 @@ function AuthContent() {
               ? 'Login'
               : 'Create Account'}
           </button>
+
+
         </form>
       </div>
     </div>

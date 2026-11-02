@@ -14,7 +14,8 @@
     "totalEarnings": 0,
     "createdAt": "2026-09-01T00:00:00Z",
     "avatar": "/logo.png",
-    "notes": "Master Platform Owner & Administrator."
+    "notes": "Master Platform Owner & Administrator.",
+    "balance": 0
   },
   {
     "id": "u-owner-vaino",
@@ -31,7 +32,8 @@
     "totalEarnings": 0,
     "createdAt": "2026-09-01T00:00:00Z",
     "avatar": "/logo.png",
-    "notes": "Official Vaino Esports Owner Account."
+    "notes": "Official Vaino Esports Owner Account.",
+    "balance": 0
   },
   {
     "id": "u-owner-tourbd",
@@ -48,6 +50,87 @@
     "totalEarnings": 0,
     "createdAt": "2026-09-01T00:00:00Z",
     "avatar": "/logo.png",
-    "notes": "FF Rival Tour BD Operations Owner."
+    "notes": "FF Rival Tour BD Operations Owner.",
+    "balance": 0
+  },
+  {
+    "id": "u-paybot-01",
+    "phone": "01799000001",
+    "ign": "PAYBOT_DEVICE_1",
+    "uid": "900000001",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #1",
+    "avatar": "/logo.png",
+    "username": "01799000001",
+    "email": "paybot1@ffrivaltourbd.com",
+    "totalEarnings": 0,
+    "balance": 0
+  },
+  {
+    "id": "u-paybot-02",
+    "phone": "01799000002",
+    "ign": "PAYBOT_DEVICE_2",
+    "uid": "900000002",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #2",
+    "avatar": "/logo.png",
+    "username": "01799000002",
+    "email": "paybot2@ffrivaltourbd.com",
+    "totalEarnings": 0,
+    "balance": 0
+  },
+  {
+    "id": "u-paybot-03",
+    "phone": "01799000003",
+    "ign": "PAYBOT_DEVICE_3",
+    "uid": "900000003",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #3",
+    "avatar": "/logo.png",
+    "username": "01799000003",
+    "email": "paybot3@ffrivaltourbd.com",
+    "totalEarnings": 0,
+    "balance": 0
+  },
+  {
+    "id": "u-paybot-04",
+    "phone": "01799000004",
+    "ign": "PAYBOT_DEVICE_4",
+    "uid": "900000004",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #4",
+    "avatar": "/logo.png",
+    "username": "01799000004",
+    "email": "paybot4@ffrivaltourbd.com",
+    "totalEarnings": 0,
+    "balance": 0
   }
 ]

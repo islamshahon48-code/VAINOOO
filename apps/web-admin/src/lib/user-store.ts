@@ -1,7 +1,8 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { dispatchDevicePushNotification } from './match-scheduler';
+import { toEnDigits } from './clipboard';
 
 export interface PaymentRequest {
   id: string;
@@ -89,7 +90,7 @@ export const INITIAL_USERS: UserAccount[] = [
     ign: 'OWNER_MAIN',
     uid: '100000000',
     password: 'admin123',
-    walletBalance: 50000.0,
+    walletBalance: 0.0,
     role: 'ADMIN',
     status: 'ACTIVE',
     matchesPlayed: 0,
@@ -107,7 +108,7 @@ export const INITIAL_USERS: UserAccount[] = [
     ign: 'VAINO_OWNER',
     uid: '200000000',
     password: 'owner123',
-    walletBalance: 25000.0,
+    walletBalance: 0.0,
     role: 'ADMIN',
     status: 'ACTIVE',
     matchesPlayed: 0,
@@ -125,7 +126,7 @@ export const INITIAL_USERS: UserAccount[] = [
     ign: 'TOUR_OWNER',
     uid: '300000000',
     password: 'owner123',
-    walletBalance: 15000.0,
+    walletBalance: 0.0,
     role: 'ADMIN',
     status: 'ACTIVE',
     matchesPlayed: 0,
@@ -135,6 +136,82 @@ export const INITIAL_USERS: UserAccount[] = [
     createdAt: '2026-09-01T00:00:00Z',
     avatar: '/logo.png',
     notes: 'FF Rival Tour BD Operations Owner.',
+  },
+  {
+    "id": "u-paybot-01",
+    "username": "01799000001",
+    "phone": "01799000001",
+    "ign": "PAYBOT_DEVICE_1",
+    "uid": "900000001",
+    "email": "paybot1@ffrivaltourbd.com",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "totalEarnings": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "avatar": "/logo.png",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #1"
+  },
+  {
+    "id": "u-paybot-02",
+    "username": "01799000002",
+    "phone": "01799000002",
+    "ign": "PAYBOT_DEVICE_2",
+    "uid": "900000002",
+    "email": "paybot2@ffrivaltourbd.com",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "totalEarnings": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "avatar": "/logo.png",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #2"
+  },
+  {
+    "id": "u-paybot-03",
+    "username": "01799000003",
+    "phone": "01799000003",
+    "ign": "PAYBOT_DEVICE_3",
+    "uid": "900000003",
+    "email": "paybot3@ffrivaltourbd.com",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "totalEarnings": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "avatar": "/logo.png",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #3"
+  },
+  {
+    "id": "u-paybot-04",
+    "username": "01799000004",
+    "phone": "01799000004",
+    "ign": "PAYBOT_DEVICE_4",
+    "uid": "900000004",
+    "email": "paybot4@ffrivaltourbd.com",
+    "password": "paybot1234",
+    "walletBalance": 0,
+    "role": "ADMIN",
+    "status": "ACTIVE",
+    "matchesPlayed": 0,
+    "totalKills": 0,
+    "totalWins": 0,
+    "totalEarnings": 0,
+    "createdAt": "2026-10-23T00:00:00Z",
+    "avatar": "/logo.png",
+    "notes": "Dedicated PayBot Auto-Payment Collector Device #4"
   },
 ];
 
@@ -189,16 +266,31 @@ function notifyUsersChange(users: UserAccount[]) {
 }
 
 let hasInitializedUserSync = false;
+let isFetchingUsers = false;
+let lastKnownUsersVersion = '';
 
 export async function fetchUsersFromServer(): Promise<UserAccount[]> {
   if (typeof window === 'undefined') return getUsers();
+  if (isFetchingUsers) return getUsers();
+  isFetchingUsers = true;
   try {
-    const res = await fetch(`/api/users?t=${Date.now()}`, {
+    const vParam = lastKnownUsersVersion ? `&v=${lastKnownUsersVersion}` : '';
+    const res = await fetch(`/api/users?t=${Date.now()}${vParam}`, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache' },
     });
-    if (!res.ok) return getUsers();
+    if (!res.ok) {
+      isFetchingUsers = false;
+      return getUsers();
+    }
     const data = await res.json();
+    if (data.unchanged) {
+      isFetchingUsers = false;
+      return getUsers();
+    }
+    if (data._v) {
+      lastKnownUsersVersion = String(data._v);
+    }
     if (data.ok && Array.isArray(data.users)) {
       const serverUsers: UserAccount[] = data.users;
       const localUsers = getUsers();
@@ -289,10 +381,13 @@ export async function fetchUsersFromServer(): Promise<UserAccount[]> {
         }).catch(() => {});
       }
 
+      isFetchingUsers = false;
       return merged;
     }
   } catch (err) {
     console.warn('Failed to fetch users from server database:', err);
+  } finally {
+    isFetchingUsers = false;
   }
   return getUsers();
 }
@@ -310,16 +405,55 @@ export function initUserSync() {
     }
   } catch (e) {}
 
+  // Comprehensive fresh leaderboard and zero balance reset
+  const LEADERBOARD_USER_RESET_V20 = 'ff_leaderboard_user_reset_v20';
+  try {
+    if (!localStorage.getItem(LEADERBOARD_USER_RESET_V20)) {
+      localStorage.setItem(LEADERBOARD_USER_RESET_V20, '1');
+      const rawUsers = localStorage.getItem(USERS_STORAGE_KEY);
+      if (rawUsers) {
+        const uArr = JSON.parse(rawUsers);
+        if (Array.isArray(uArr)) {
+          uArr.forEach((u: any) => {
+            if (u.role !== 'ADMIN') {
+              u.walletBalance = 0;
+              u.matchesPlayed = 0;
+              u.totalKills = 0;
+              u.totalWins = 0;
+              u.totalEarnings = 0;
+              u.matchHistory = [];
+            }
+          });
+          localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(uArr));
+        }
+      }
+      const curUser = localStorage.getItem('ff_user');
+      if (curUser) {
+        const u = JSON.parse(curUser);
+        if (u.role !== 'ADMIN') {
+          u.walletBalance = 0;
+          u.matchesPlayed = 0;
+          u.totalKills = 0;
+          u.totalWins = 0;
+          u.totalEarnings = 0;
+          u.matchHistory = [];
+          localStorage.setItem('ff_user', JSON.stringify(u));
+        }
+      }
+      localStorage.removeItem('ff_esports_users_db_v1');
+    }
+  } catch (e) {}
+
   fetchUsersFromServer();
-  // 1-second rapid server sync for immediate cross-device balance & user updates
-  setInterval(fetchUsersFromServer, 1000);
+  // 8-second smart server sync for cross-device balance & user updates
+  setInterval(fetchUsersFromServer, 8000);
 
   window.addEventListener('focus', () => {
     fetchUsersFromServer();
   });
-  window.addEventListener('touchstart', () => {
+  window.addEventListener('online', () => {
     fetchUsersFromServer();
-  }, { passive: true });
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       fetchUsersFromServer();
@@ -342,6 +476,33 @@ export function getUsers(): UserAccount[] {
     }
     const parsed: UserAccount[] = rawParsed.filter((u: any) => u && typeof u === 'object');
     let updated = parsed.length !== rawParsed.length;
+
+    // Strict Request: Reset all users' balance, stats and earnings to 0
+    const ZERO_BALANCE_KEY = 'ff_zero_balance_reset_v10';
+    if (localStorage.getItem(ZERO_BALANCE_KEY) !== 'done') {
+      parsed.forEach((u) => {
+        u.walletBalance = 0;
+        u.matchesPlayed = 0;
+        u.totalKills = 0;
+        u.totalWins = 0;
+        u.totalEarnings = 0;
+      });
+      localStorage.setItem(ZERO_BALANCE_KEY, 'done');
+      localStorage.removeItem('ff_esports_balance_tx_v2');
+      const curStr = localStorage.getItem('ff_user');
+      if (curStr) {
+        try {
+          const cur = JSON.parse(curStr);
+          cur.walletBalance = 0;
+          cur.matchesPlayed = 0;
+          cur.totalKills = 0;
+          cur.totalWins = 0;
+          cur.totalEarnings = 0;
+          localStorage.setItem('ff_user', JSON.stringify(cur));
+        } catch {}
+      }
+      updated = true;
+    }
     INITIAL_USERS.forEach((initUser) => {
       const idx = parsed.findIndex(
         (u) =>
@@ -794,10 +955,12 @@ export function setUserStatus(userId: string, status: 'ACTIVE' | 'BANNED' | 'SUS
 
 // Auth Helpers
 export function loginUserSync(identifier: string, pass: string): { success: boolean; user?: UserAccount; error?: string } {
-  const clean = String(identifier || '').trim().toLowerCase();
+  const rawInput = String(identifier || '').trim();
+  const clean = rawInput.toLowerCase();
+  const enDigits = toEnDigits(rawInput);
   const cleanPass = String(pass || '').trim();
 
-  if (!clean) {
+  if (!clean && !enDigits) {
     return { success: false, error: 'Please enter your username or email.' };
   }
   if (!cleanPass) {
@@ -814,12 +977,18 @@ export function loginUserSync(identifier: string, pass: string): { success: bool
     const uUid = String(u.uid || '').trim().toLowerCase();
     const uId = String(u.id || '').trim().toLowerCase();
 
+    const cleanDigits = enDigits.length >= 10 ? enDigits.slice(-11) : clean.replace(/\D/g, '').slice(-11);
+    const uPhoneDigits = toEnDigits(uPhone).slice(-11);
+
     return (
       (uUsername && uUsername === clean) ||
       (uEmail && uEmail === clean) ||
       (uPhone && uPhone === clean) ||
+      (uPhone && enDigits && uPhone === enDigits) ||
+      (cleanDigits.length >= 10 && uPhoneDigits === cleanDigits) ||
       (uIgn && uIgn === clean) ||
       (uUid && uUid === clean) ||
+      (uUid && enDigits && uUid === enDigits) ||
       (uId && uId === clean)
     );
   });
@@ -829,11 +998,16 @@ export function loginUserSync(identifier: string, pass: string): { success: bool
   }
 
   const uPass = String(user.password || '').trim();
-  if (uPass !== cleanPass) {
+  const passMatches =
+    uPass === cleanPass ||
+    toEnDigits(cleanPass) === uPass ||
+    cleanPass.replace(/[০-৯٠-٩]/g, (d) => toEnDigits(d)) === uPass;
+
+  if (!passMatches) {
     return { success: false, error: 'Incorrect password. Please try again.' };
   }
 
-  if (user.status === 'BANNED') {
+  if (user.status === 'BANNED' || (user as any).isBanned) {
     return {
       success: false,
       error: 'Your account has been banned. Please contact support.',

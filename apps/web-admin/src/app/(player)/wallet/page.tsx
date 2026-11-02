@@ -1,14 +1,16 @@
 'use client';
 
+import Link from 'next/link';
+
 import React, { useState, useEffect } from 'react';
-import { Wallet, ArrowDownRight, ArrowUpRight, Check, AlertCircle, Copy, CheckCircle2, Loader2 } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Check, AlertCircle, Copy, CheckCircle2, Loader2, History } from 'lucide-react';
 import { getCurrentUser, addBalance, deductBalance, getTransactions, submitDepositRequest } from '@/lib/user-store';
 import { useCMS } from '@/lib/cms-store';
 
 export default function WalletPage() {
   const { settings } = useCMS();
   const [activeTab, setActiveTab] = useState<'DEPOSIT' | 'WITHDRAW'>('DEPOSIT');
-  const [method, setMethod] = useState<'BKASH' | 'NAGAD' | 'ROCKET'>('BKASH');
+  const [method, setMethod] = useState<'BKASH' | 'NAGAD' | 'ROCKET'>('NAGAD');
   const [amount, setAmount] = useState<number>(100);
   const [phone, setPhone] = useState('');
   const [trxId, setTrxId] = useState('');
@@ -70,8 +72,14 @@ export default function WalletPage() {
     setLoading(true);
     setMessage(null);
 
+    if (method === 'BKASH') {
+      setMessage({ type: 'error', text: 'বিকাশ ডিপোজিট সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে নগদ নির্বাচন করুন।' });
+      setLoading(false);
+      return;
+    }
+
     if (method === 'ROCKET') {
-      setMessage({ type: 'error', text: 'রকেট পেমেন্ট সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে বিকাশ বা নগদ নির্বাচন করুন।' });
+      setMessage({ type: 'error', text: 'রকেট পেমেন্ট সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে নগদ নির্বাচন করুন।' });
       setLoading(false);
       return;
     }
@@ -150,8 +158,14 @@ export default function WalletPage() {
     setLoading(true);
     setMessage(null);
 
+    if (method === 'BKASH') {
+      setMessage({ type: 'error', text: 'বিকাশ উইথড্র সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে নগদ নির্বাচন করুন।' });
+      setLoading(false);
+      return;
+    }
+
     if (method === 'ROCKET') {
-      setMessage({ type: 'error', text: 'রকেট পেমেন্ট সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে বিকাশ বা নগদ নির্বাচন করুন।' });
+      setMessage({ type: 'error', text: 'রকেট পেমেন্ট সাময়িক বন্ধ রয়েছে। অনুগ্রহ করে নগদ নির্বাচন করুন।' });
       setLoading(false);
       return;
     }
@@ -200,12 +214,21 @@ export default function WalletPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
-      <div>
-        <h1 className="text-3xl font-extrabold text-white">bKash & Nagad Wallet</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Deposit funds to join matches or withdraw your verified tournament earnings.
-        </p>
-      </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-extrabold text-white">bKash & Nagad Wallet</h1>
+            <p className="text-sm text-gray-400 mt-1">
+              Deposit funds to join matches or withdraw your verified tournament earnings.
+            </p>
+          </div>
+          <Link
+            href="/history"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-2 shadow-md shadow-amber-500/20 active:scale-95 transition-all self-start sm:self-auto"
+          >
+            <History className="w-4 h-4" />
+            <span>📜 মাই হিস্ট্রি (My History)</span>
+          </Link>
+        </div>
 
       {/* Tabs */}
       <div className="flex border-b border-white/10 gap-6">
@@ -258,6 +281,18 @@ export default function WalletPage() {
             <label className="text-xs font-bold text-gray-300 uppercase">Select Payment Provider</label>
             <div className="grid grid-cols-3 gap-3">
               {(['BKASH', 'NAGAD', 'ROCKET'] as const).map((m) => {
+                if (m === 'BKASH') {
+                  return (
+                    <div
+                      key={m}
+                      className="py-3 rounded-xl text-xs font-bold border border-dashed border-rose-500/30 text-gray-500 bg-rose-500/5 opacity-70 cursor-not-allowed flex flex-col items-center justify-center gap-0.5 select-none"
+                      title="বিকাশ বন্ধ আছে"
+                    >
+                      <span className="line-through text-rose-400">bKash</span>
+                      <span className="text-[9px] font-black text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">বন্ধ আছে</span>
+                    </div>
+                  );
+                }
                 if (m === 'ROCKET') {
                   return (
                     <div
@@ -281,7 +316,7 @@ export default function WalletPage() {
                         : 'bg-white/[0.03] border-white/10 text-gray-400 hover:bg-white/[0.06]'
                     }`}
                   >
-                    {m === 'BKASH' ? 'bKash' : 'Nagad'}
+                    Nagad (নগদ)
                   </button>
                 );
               })}
@@ -290,6 +325,11 @@ export default function WalletPage() {
 
           {activeTab === 'DEPOSIT' ? (
             <form onSubmit={handleDeposit} className="space-y-4">
+              {/* Notice: bKash is closed */}
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span><strong>বিকাশ বন্ধ আছে:</strong> বর্তমানে বিকাশ ডিপোজিট সাময়িক বন্ধ রাখা হয়েছে। ডিপোজিট করতে নগদ (Nagad) ব্যবহার করুন।</span>
+              </div>
               {/* Payment Instructions Box */}
               <div className="p-4 rounded-xl bg-black/40 border border-white/5 space-y-2 text-xs text-gray-300">
                 <div className="font-bold text-white flex items-center justify-between">

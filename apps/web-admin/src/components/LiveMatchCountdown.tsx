@@ -80,10 +80,32 @@ export function parseScheduleTimeToDate(matchTime: string, startTimeIso?: string
     }
     target.setHours(hours, minutes, 0, 0);
 
+    // If dayOffset was 0 (Today) and target is already in the past, roll to tomorrow
+    if (!ymdMatch && dayOffset === 0 && target.getTime() < Date.now() - 3600 * 1000) {
+      target.setDate(target.getDate() + 1);
+    }
+
     return target;
   }
 
   return null;
+}
+
+/**
+ * Returns a clean, upcoming schedule string like "Today 08:30 PM" or "Tomorrow 10:00 AM".
+ */
+export function getUpcomingScheduleTime(offsetHours: number = 1): string {
+  const now = new Date();
+  const d = new Date(Date.now() + offsetHours * 60 * 60 * 1000);
+  const isTomorrow = d.getDate() !== now.getDate();
+  const dayPrefix = isTomorrow ? 'Tomorrow' : 'Today';
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const padH = h12 < 10 ? `0${h12}` : `${h12}`;
+  const padM = m < 10 ? `0${m}` : `${m}`;
+  return `${dayPrefix} ${padH}:${padM} ${period}`;
 }
 
 /**
@@ -121,7 +143,8 @@ export function isMatchFinished(match: {
     s === 'FINISHED' ||
     s === 'ENDED' ||
     s === 'RESULT_PUBLISHED' ||
-    s === 'CANCELLED'
+    s === 'CANCELLED' ||
+    s === 'LIVE'
   ) {
     return true;
   }
@@ -129,32 +152,33 @@ export function isMatchFinished(match: {
     return true;
   }
 
-  // Exactly 6 minutes after Room ID & password delivery, match auto-finishes & leaves active lobbies
-  const deliveredIso = (match as any)?.roomDeliveredAt || (match as any)?.deliveredAt;
-  if (deliveredIso) {
+  // User specification: As soon as match scheduled time has arrived/passed, it immediately leaves active category lobbies
+  if (match.time) {
     try {
-      const deliveredTime = new Date(deliveredIso).getTime();
-      if (!isNaN(deliveredTime)) {
-        const elapsedMins = (Date.now() - deliveredTime) / (60 * 1000);
-        if (elapsedMins >= 6) {
+      const d = parseScheduleTimeToDate(match.time, match.startTimeIso);
+      if (d && !isNaN(d.getTime())) {
+        const diffMs = Date.now() - d.getTime();
+        // If match scheduled time has arrived (0 ms or more elapsed), match leaves active lobby
+        if (diffMs >= 0) {
           return true;
         }
       }
     } catch (e) {}
   }
 
-  if (match.time) {
+  const deliveredIso = (match as any)?.roomDeliveredAt || (match as any)?.deliveredAt;
+  if (deliveredIso) {
     try {
-      const d = parseScheduleTimeToDate(match.time, match.startTimeIso);
-      if (d && !isNaN(d.getTime())) {
-        const elapsedMins = (Date.now() - d.getTime()) / (60 * 1000);
-        // If 45 minutes have elapsed since the scheduled start time, match has concluded
-        if (elapsedMins > 45) {
+      const deliveredTime = new Date(deliveredIso).getTime();
+      if (!isNaN(deliveredTime)) {
+        const elapsedMins = (Date.now() - deliveredTime) / (60 * 1000);
+        if (elapsedMins >= 8) {
           return true;
         }
       }
     } catch (e) {}
   }
+
   return false;
 }
 

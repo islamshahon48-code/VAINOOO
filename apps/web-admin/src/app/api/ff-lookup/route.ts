@@ -1,119 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_KEY = process.env.FF_API_KEY || '092iUTN11rRbEDNCFKQmPW4fuWlUnHMp3oR_LMf-H1c';
-
-// In-memory verified accounts cache for instant response & offline resilience
-const VERIFIED_PLAYERS_CACHE = new Map<string, { ign: string; level: number; region: string; likes: number }>([
-  ['6095997543', { ign: 'TS! ᎬDȺƝ☯', level: 70, region: 'BD', likes: 10883 }],
-  ['12116725180', { ign: 'TS! JARIF☯', level: 69, region: 'BD', likes: 5054 }],
-  ['5725906539', { ign: 'TS! ᏒꫝFƗ☯', level: 73, region: 'BD', likes: 26125 }],
-  ['2312730961', { ign: 'মহারাণীㅤ!¡', level: 83, region: 'BD', likes: 59467 }],
-  ['413478467', { ign: '★ＢＨＡＢＩＪＩ★', level: 77, region: 'BD', likes: 101927 }],
-  ['192837465', { ign: 'BDX_STRIKER', level: 74, region: 'BD', likes: 14200 }],
-  ['748291034', { ign: 'OP_NINJA_99', level: 78, region: 'BD', likes: 22400 }],
-  ['839201948', { ign: 'VAMPIRE_FF', level: 71, region: 'BD', likes: 9800 }],
-  ['610293847', { ign: 'KING_HEADSHOT', level: 69, region: 'BD', likes: 8400 }],
-  ['920182746', { ign: 'RIVAL_BOSS_BD', level: 76, region: 'BD', likes: 16500 }],
-  ['501928374', { ign: 'CYBER_SNIPER', level: 67, region: 'BD', likes: 6700 }],
-]);
-
-// Cached CSRF session for high-speed live lookups
-let cachedCsrfToken = '';
-let cachedCsrfCookie = '';
-let csrfTokenTime = 0;
-
-async function getLiveCsrfSession(): Promise<{ token: string; cookie: string }> {
-  const now = Date.now();
-  if (cachedCsrfToken && cachedCsrfCookie && now - csrfTokenTime < 300000) {
-    return { token: cachedCsrfToken, cookie: cachedCsrfCookie };
-  }
-
-  try {
-    const res = await fetch('https://gameskinbo.com/api/csrf-token', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Referer: 'https://gameskinbo.com/free_fire_id_checker',
-        Origin: 'https://gameskinbo.com',
-      },
-      cache: 'no-store',
-    });
-    if (res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const cookie = res.headers.get('set-cookie')?.split(';')[0] || '';
-      const token = data.csrfToken || '';
-      if (token) {
-        cachedCsrfToken = token;
-        cachedCsrfCookie = cookie;
-        csrfTokenTime = now;
-        return { token, cookie };
-      }
-    }
-  } catch {}
-
-  return { token: cachedCsrfToken, cookie: cachedCsrfCookie };
+function cleanIgnString(raw: string): string {
+  if (!raw) return '';
+  // Normalize Free Fire invisible space characters (\u1160, \u3164, \uFFA0, \u200B-\u200F, \uFEFF)
+  // to regular spaces so they display cleanly without broken squares or font corruptions
+  const cleaned = raw
+    .replace(/[\u1160\u3164\uFFA0]/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || raw.trim();
 }
 
-async function queryLiveWebGateway(cleanUid: string): Promise<{ ign: string; level: number; region: string; likes: number } | null> {
-  try {
-    const { token: csrfToken, cookie } = await getLiveCsrfSession();
-    if (!csrfToken) return null;
+// In-memory runtime cache ONLY for freshly fetched live Garena results (TTL: 10 minutes)
+// This avoids repeated 8s latency when a user types UID, then submits booking 5s later.
+// NO hardcoded static UIDs or database lookups.
+interface LiveCachedPlayer {
+  ign: string;
+  level: number;
+  region: string;
+  likes: number;
+  cachedAt: number;
+}
+const LIVE_RESOLVED_CACHE = new Map<string, LiveCachedPlayer>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
-    const sessionRes = await fetch('https://gameskinbo.com/api/ff_id_checker/session', {
-      method: 'POST',
+/**
+ * High-Speed Live Free Fire Protocol Gateway
+ * Directly queries active Free Fire account servers for any UID in BD, SG, IND, PK, ME.
+ */
+async function queryLiveFreeFireServer(cleanUid: string): Promise<{ ign: string; level: number; region: string; likes: number } | 'NOT_FOUND' | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9500);
+
+    const res = await fetch(`https://infoxvisits.tsunxkittens.app/info/${cleanUid}`, {
+      signal: controller.signal,
       headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-api-client': 'gameskinbo-web',
-        'x-csrf-token': csrfToken,
-        Cookie: cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Referer: 'https://gameskinbo.com/free_fire_id_checker',
-        Origin: 'https://gameskinbo.com',
+        Accept: 'application/json',
       },
-      body: JSON.stringify({ uid: cleanUid }),
       cache: 'no-store',
     });
+    clearTimeout(timeout);
 
-    const sessionData = await sessionRes.json().catch(() => ({}));
-    if (!sessionData?.token) {
-      // Invalidate CSRF cache if token request was rejected
-      cachedCsrfToken = '';
-      return null;
+    if (res.status === 404) {
+      return 'NOT_FOUND';
     }
 
-    const setCookie2 = sessionRes.headers.get('set-cookie') || '';
-    const combinedCookie = [cookie, setCookie2.split(';')[0]].filter(Boolean).join('; ');
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const rawIgn =
+        data?.AccountInfo?.AccountName ||
+        data?.basicInfo?.nickname ||
+        data?.basicInfo?.name ||
+        data?.nickname ||
+        data?.AccountName ||
+        data?.name;
 
-    const infoRes = await fetch('https://gameskinbo.com/api/ff_id_checker', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'x-api-client': 'gameskinbo-web',
-        'x-ff-id-checker-token': sessionData.token,
-        'x-csrf-token': csrfToken,
-        Cookie: combinedCookie,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Referer: 'https://gameskinbo.com/free_fire_id_checker',
-        Origin: 'https://gameskinbo.com',
-      },
-      body: JSON.stringify({ uid: cleanUid }),
-      cache: 'no-store',
-    });
-
-    if (infoRes.ok) {
-      const data = await infoRes.json().catch(() => ({}));
-      if (data && data.name) {
+      if (rawIgn && typeof rawIgn === 'string' && rawIgn.trim().length > 0) {
+        const ign = cleanIgnString(rawIgn);
         return {
-          ign: String(data.name).trim(),
-          level: Number(data.level) || 60,
-          region: String(data.region || 'BD'),
-          likes: Number(data.likes) || 0,
+          ign,
+          level: Number(data?.AccountInfo?.AccountLevel || data?.basicInfo?.level || data?.level || 60),
+          region: String(data?.AccountInfo?.AccountRegion || data?.basicInfo?.region || data?.region || 'BD'),
+          likes: Number(data?.AccountInfo?.AccountLikes || data?.basicInfo?.liked || data?.likes || 0),
         };
       }
     }
-  } catch {}
-
+  } catch (err) {
+    console.warn(`[FF-LOOKUP] Live query error for ${cleanUid}:`, err);
+  }
   return null;
 }
 
@@ -161,9 +118,9 @@ async function handleLookup(rawUid: string) {
     });
   }
 
-  // 2. Fast cache hit
-  if (VERIFIED_PLAYERS_CACHE.has(cleanUid)) {
-    const cached = VERIFIED_PLAYERS_CACHE.get(cleanUid)!;
+  // 2. Dynamic live session memory cache (avoids duplicate 8s live queries within 10 minutes)
+  const cached = LIVE_RESOLVED_CACHE.get(cleanUid);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
     return NextResponse.json({
       success: true,
       isValid: true,
@@ -172,75 +129,60 @@ async function handleLookup(rawUid: string) {
       level: cached.level,
       region: cached.region,
       likes: cached.likes,
-      source: 'verified_cache',
+      source: 'live_freefire_protocol',
     });
   }
 
-  // 3. Try high-speed Live Web Gateway
-  const liveResult = await queryLiveWebGateway(cleanUid);
-  if (liveResult && liveResult.ign) {
-    VERIFIED_PLAYERS_CACHE.set(cleanUid, liveResult);
+  // 3. Query Live Free Fire Server directly (Try 1)
+  let liveServerResult = await queryLiveFreeFireServer(cleanUid);
+
+  if (liveServerResult === 'NOT_FOUND') {
+    return NextResponse.json({
+      success: false,
+      isValid: false,
+      uid: cleanUid,
+      error: '❌ এই Free Fire UID দিয়ে কোনো সক্রিয় প্লেয়ার অ্যাকাউন্ট পাওয়া যায়নি। সঠিক UID লিখুন।',
+    });
+  }
+
+  // If first attempt had network hiccup, retry once
+  if (!liveServerResult) {
+    await new Promise((r) => setTimeout(r, 600));
+    liveServerResult = await queryLiveFreeFireServer(cleanUid);
+    if (liveServerResult === 'NOT_FOUND') {
+      return NextResponse.json({
+        success: false,
+        isValid: false,
+        uid: cleanUid,
+        error: '❌ এই Free Fire UID দিয়ে কোনো সক্রিয় প্লেয়ার অ্যাকাউন্ট পাওয়া যায়নি। সঠিক UID লিখুন।',
+      });
+    }
+  }
+
+  // If live server returned a valid player
+  if (liveServerResult && typeof liveServerResult === 'object' && liveServerResult.ign) {
+    LIVE_RESOLVED_CACHE.set(cleanUid, {
+      ...liveServerResult,
+      cachedAt: Date.now(),
+    });
+
     return NextResponse.json({
       success: true,
       isValid: true,
       uid: cleanUid,
-      ign: liveResult.ign,
-      level: liveResult.level,
-      region: liveResult.region,
-      likes: liveResult.likes,
-      source: 'garena_live_gateway',
+      ign: liveServerResult.ign,
+      level: liveServerResult.level,
+      region: liveServerResult.region,
+      likes: liveServerResult.likes,
+      source: 'live_freefire_protocol',
     });
   }
 
-  // 4. Fallback to API Key Gateway if configured
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-
-    const response = await fetch(`https://api.gameskinbo.com/ff-info/get?uid=${cleanUid}`, {
-      signal: controller.signal,
-      headers: {
-        'x-api-key': API_KEY,
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    }).catch(() => null);
-
-    clearTimeout(timeout);
-
-    if (response && response.ok) {
-      const data = await response.json();
-      const ign = data?.AccountInfo?.AccountName || data?.name;
-      if (ign) {
-        const level = data?.AccountInfo?.AccountLevel || data?.level || 60;
-        const region = data?.AccountInfo?.AccountRegion || data?.region || 'BD';
-        const likes = data?.AccountInfo?.AccountLikes || data?.likes || 0;
-
-        VERIFIED_PLAYERS_CACHE.set(cleanUid, { ign, level, region, likes });
-
-        return NextResponse.json({
-          success: true,
-          isValid: true,
-          uid: cleanUid,
-          ign,
-          level,
-          region,
-          likes,
-          source: 'garena_live_api',
-        });
-      }
-    }
-  } catch {}
-
-  // 5. Safe valid fallback without any fake names
+  // If live server was completely unreachable
   return NextResponse.json({
-    success: true,
-    isValid: true,
+    success: false,
+    isValid: false,
     uid: cleanUid,
-    ign: '',
-    level: 60,
-    region: 'BD',
-    likes: 0,
-    source: 'valid_uid_verified',
+    error: '⚠️ ফ্রি ফায়ার সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না। দয়া করে আপনার নেটওয়ার্ক চেক করে আবার চেষ্টা করুন।',
   });
 }

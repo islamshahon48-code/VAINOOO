@@ -16,6 +16,9 @@ import {
   Camera,
   Mail,
   Bell,
+  Zap,
+  Smartphone,
+  History,
 } from 'lucide-react';
 
 import { getCurrentUser, updateUser } from '@/lib/user-store';
@@ -49,6 +52,13 @@ export default function ProfilePage() {
           (window as any).AndroidBridge.requestNotificationPermission();
         }
         localStorage.setItem('ff_notif_permission_state', 'granted');
+        if (typeof window !== 'undefined' && (window as any).AndroidBridge?.showNativeNotification) {
+          (window as any).AndroidBridge.showNativeNotification(
+            '🔔 নোটিফিকেশন চালু হয়েছে!',
+            'এখন থেকে সকল ম্যাচ ও রুম আইডির আপডেট আপনার ফোনে সরাসরি আসবে।',
+            '/'
+          );
+        }
       } catch {}
     } else {
       try {
@@ -186,24 +196,25 @@ export default function ProfilePage() {
             ৳ {Number(user.walletBalance ?? 0).toFixed(2)}
           </div>
           <div className="flex gap-2 justify-center sm:justify-end pt-1 flex-wrap">
-            <button
-              onClick={() => {
-                setFinanceModalTab('DEPOSIT');
-                setShowFinanceModal(true);
-              }}
+            <Link
+              href="/deposit"
               className="px-3 py-1.5 rounded-lg btn-red text-[11px] font-bold flex items-center gap-1 shadow-sm"
             >
               <ArrowDownRight className="w-3.5 h-3.5" /> ডিপোজিট (Deposit)
-            </button>
-            <button
-              onClick={() => {
-                setFinanceModalTab('WITHDRAW');
-                setShowFinanceModal(true);
-              }}
+            </Link>
+            <Link
+              href="/withdraw"
               className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-sm"
             >
               <ArrowUpRight className="w-3.5 h-3.5 text-white" /> উইথড্র (Withdraw)
-            </button>
+            </Link>
+            <Link
+              href="/history"
+              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black flex items-center gap-1 shadow-sm"
+            >
+              <History className="w-3.5 h-3.5" /> মাই হিস্ট্রি (My History)
+            </Link>
+            
             {user.role === 'ADMIN' && (
               <Link
                 href="/admin"
@@ -215,6 +226,40 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Dedicated PayBot Connector Card (Visible exclusively to the 4 PayBot IDs and Admin) */}
+      {(user?.id?.startsWith('u-paybot') ||
+        user?.phone?.startsWith('0179900000') ||
+        user?.role === 'ADMIN') && (
+        <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 p-5 shadow-lg shadow-emerald-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+              <Zap className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black text-white flex items-center gap-2">
+                  ⚡ PayBot অটো-পেমেন্ট ও মোবাইল কানেক্টর
+                </h4>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  EXCLUSIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                বিকাশ/নগদ অটো-ডিপোজিট কানেক্ট করুন। কোনো আলাদা এসএমএস ফরওয়ার্ডার লাগবে না।
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/paybot-connect"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-black shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+          >
+            <Smartphone className="w-4 h-4" />
+            ফোনে কানেক্ট করুন
+          </Link>
+        </div>
+      )}
 
       {/* Stats Summary Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

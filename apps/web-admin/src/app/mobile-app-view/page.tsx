@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
@@ -15,6 +15,7 @@ import {
   Key,
   Copy,
   CheckCircle,
+  CheckCircle2,
   Clock,
   Users,
   Sun,
@@ -56,6 +57,7 @@ import {
   Home,
   Clipboard,
   ShieldCheck,
+  History as HistoryIcon,
 } from 'lucide-react';
 import { useCMS, MatchItem, TopPlayerItem, INITIAL_SETTINGS, INITIAL_CATEGORIES, INITIAL_BANNERS } from '@/lib/cms-store';
 import { checkFreeFireUID } from '@/lib/ff-uid-checker';
@@ -72,7 +74,8 @@ import LiveMatchCountdown, {
 } from '@/components/LiveMatchCountdown';
 import DepositWithdrawModal from '@/components/DepositWithdrawModal';
 import SupportChatScreen from '@/components/SupportChatScreen';
-import { SupportTicket, getOrCreateUserConversation } from '@/lib/support-store';
+import MyHistoryComponent from '@/components/MyHistoryComponent';
+import { SupportTicket, getOrCreateUserConversation, createSupportTicket } from '@/lib/support-store';
 import { useLanguage } from '@/components/LanguageProvider';
 import { readClipboardText, toEnDigits } from '@/lib/clipboard';
 import {
@@ -95,6 +98,7 @@ import {
   AppNotification,
   getUserBookedMatches,
   saveUserBookedMatches,
+  getUserPlayedMatchesHistory,
   addUserBooking,
   autoDeliverRoomCredentials,
   runBotRoomManagerCycle,
@@ -137,22 +141,44 @@ export default function MobileAppViewPage(props: any) {
   useEffect(() => {
     setMounted(true);
 
-    // Fast, ultra-responsive esports splash loading sequence
-    const t1 = setTimeout(() => setSplashProgress(70), 50);
-    const t2 = setTimeout(() => setSplashProgress(100), 120);
-    const t3 = setTimeout(() => setSplashFading(true), 200);
-    const t4 = setTimeout(() => setSplashVisible(false), 350);
+    // Smooth, premium esports splash loading sequence (~1.6s)
+    const t1 = setTimeout(() => setSplashProgress(38), 200);
+    const t2 = setTimeout(() => setSplashProgress(68), 500);
+    const t3 = setTimeout(() => setSplashProgress(88), 900);
+    const t4 = setTimeout(() => setSplashProgress(100), 1300);
+    const t5 = setTimeout(() => setSplashFading(true), 1550);
+    const t6 = setTimeout(() => {
+      setSplashVisible(false);
+      // Immediately after splash loading finishes, prompt Sign In / Login modal if not logged in
+      const cur = getCurrentUser();
+      if (!cur) {
+        setShowAuthModal(true);
+      }
+    }, 1850);
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
       clearTimeout(t3);
       clearTimeout(t4);
+      clearTimeout(t5);
+      clearTimeout(t6);
     };
   }, []);
 
   // Active Tab & Screen Navigation
-  const [activeTab, setActiveTab] = useState<'home' | 'my-matches' | 'top-players' | 'wallet' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'my-matches' | 'top-players' | 'wallet' | 'profile'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get('tab');
+        if (t === 'my-matches' || t === 'top-players' || t === 'wallet' || t === 'profile') {
+          return t;
+        }
+      } catch (e) {}
+    }
+    return 'home';
+  });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categoryTab, setCategoryTab] = useState<'PLAY' | 'RESULT'>('PLAY');
 
@@ -184,6 +210,20 @@ export default function MobileAppViewPage(props: any) {
   const [userBalance, setUserBalance] = useState(0.0);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
 
+  // Check if current user is strictly an Owner / Admin account (PayBot is ONLY visible to owner IDs)
+  const isOwnerUser = Boolean(
+    currentUser && (
+      currentUser.role === 'ADMIN' ||
+      currentUser.role === 'SUPERVISOR' ||
+      currentUser.id?.startsWith('u-owner') ||
+      currentUser.id?.startsWith('u-paybot') ||
+      currentUser.phone === '01700000000' ||
+      currentUser.phone === '01911000000' ||
+      currentUser.phone === '01822000000' ||
+      currentUser.phone?.startsWith('0179900000')
+    )
+  );
+
   // Auth modal state
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showOverlayModal, setShowOverlayModal] = useState(false);
@@ -213,6 +253,12 @@ export default function MobileAppViewPage(props: any) {
   const [confirmPassInput, setConfirmPassInput] = useState('');
   const [passMessage, setPassMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [showAntiCheatModal, setShowAntiCheatModal] = useState(false);
+  const [suspectIgn, setSuspectIgn] = useState('');
+  const [cheatProof, setCheatProof] = useState('');
+  const [cheatReportSent, setCheatReportSent] = useState(false);
+  const [showMyHistory, setShowMyHistory] = useState(false);
+  const [historyInitialTab, setHistoryInitialTab] = useState<"ADD_MONEY" | "MATCH_ENTRY" | "WITHDRAW" | "MATCH_WINNINGS">("ADD_MONEY");
   const [showDevInfoModal, setShowDevInfoModal] = useState(false);
   // App Download / Update Modal state (defaults to false so users are never blocked)
   const [showUpdateModal, setShowUpdateModal] = useState<boolean>(false);
@@ -220,18 +266,55 @@ export default function MobileAppViewPage(props: any) {
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(0);
 
-  // Auto-prompt login/register on first entry for new visitors
+  // Auth modal prompt is triggered automatically upon splash screen completion (t6)
   useEffect(() => {
-    const cur = getCurrentUser();
-    if (!cur) {
-      const hasPrompted = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('ff_auth_prompted_once') : null;
-      if (!hasPrompted) {
-        setShowAuthModal(true);
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('ff_auth_prompted_once', '1');
+    // Keep user state in sync on storage events
+    const syncCur = () => {
+      const cur = getCurrentUser();
+      setCurrentUser(cur);
+    };
+    window.addEventListener('storage', syncCur);
+    window.addEventListener('ff_users_updated', syncCur);
+    return () => {
+      window.removeEventListener('storage', syncCur);
+      window.removeEventListener('ff_users_updated', syncCur);
+    };
+  }, []);
+
+  // Automatic In-App Update Prompt: only prompt once if client runs an older APK version, never nag repeatedly
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        // If user already updated or dismissed permanently, never show again
+        const isAlreadyUpdated =
+          localStorage.getItem('ff_app_installed_version_v500') === 'v5.0.0' ||
+          localStorage.getItem('ff_app_update_dismissed_permanent') === 'true';
+
+        if (isAlreadyUpdated) {
+          setShowUpdateModal(false);
+          return;
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlVer = urlParams.get('v');
+        const nativeVerCode = (window as any)?.AndroidBridge?.getAppVersionCode?.() ?? null;
+        const nativeVerName = (window as any)?.AndroidBridge?.getAppVersionName?.() ?? null;
+        const dismissedSession = sessionStorage.getItem('ff_update_dismissed_session');
+
+        // Check if APK is outdated (version code < 50 or URL param < 5.0.0)
+        const isOutdatedCode = nativeVerCode !== null && nativeVerCode < 50;
+        const isOutdatedUrl = urlVer && urlVer !== '5.0.0';
+        const isOutdatedName = nativeVerName && nativeVerName !== '5.0.0';
+
+        if ((isOutdatedCode || isOutdatedUrl || isOutdatedName) && dismissedSession !== 'true') {
+          // Delay display until after initial splash screen completes
+          const updateTimer = setTimeout(() => {
+            setShowUpdateModal(true);
+          }, 2400);
+          return () => clearTimeout(updateTimer);
         }
       }
-    }
+    } catch {}
   }, []);
 
   // Pull-to-refresh state
@@ -328,16 +411,23 @@ export default function MobileAppViewPage(props: any) {
     touchStartYRef.current = 0;
   };
 
-  const handleUidChange = async (val: string) => {
+  const uidDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleUidChange = (val: string) => {
     setAuthUid(val);
+    if (uidDebounceTimerRef.current) {
+      clearTimeout(uidDebounceTimerRef.current);
+    }
     const clean = toEnDigits(val);
-    if (clean.length >= 8 && (!authIgn || authIgn.startsWith('OP_') || authIgn.startsWith('BD_') || authIgn.startsWith('RIVAL_'))) {
-      try {
-        const profile = await checkFreeFireUID(clean);
-        if (profile.isValid && profile.ign) {
-          setAuthIgn(profile.ign);
-        }
-      } catch {}
+    if (clean.length >= 8 && clean.length <= 12) {
+      uidDebounceTimerRef.current = setTimeout(async () => {
+        try {
+          const profile = await checkFreeFireUID(clean);
+          if (profile.isValid && profile.ign) {
+            setAuthIgn(profile.ign);
+          }
+        } catch {}
+      }, 400);
     }
   };
 
@@ -370,6 +460,11 @@ export default function MobileAppViewPage(props: any) {
   }, []);
 
   const handleEnablePushNotification = async () => {
+    if (typeof window !== 'undefined' && (window as any).AndroidBridge?.requestNotificationPermission) {
+      try {
+        (window as any).AndroidBridge.requestNotificationPermission();
+      } catch (e) {}
+    }
     const granted = await requestNotificationPermission();
     if (granted) {
       setShowPushBanner(false);
@@ -380,6 +475,167 @@ export default function MobileAppViewPage(props: any) {
     } else {
       setShowPushBanner(false);
     }
+  };
+
+  // PayBot In-App Connector States (24/7 Always-Connected with Native Android & Local Storage Persistence)
+  const [showPayBotModal, setShowPayBotModal] = useState(false);
+  const [isPaybotConnected, setIsPaybotConnected] = useState(false);
+  const [isPaybotConnecting, setIsPaybotConnecting] = useState(false);
+  const [paybotBattery, setPaybotBattery] = useState(96);
+  const [paybotLastPing, setPaybotLastPing] = useState('');
+  const [paybotTestResult, setPaybotTestResult] = useState<any>(null);
+  const [selectedPaybotPhone, setSelectedPaybotPhone] = useState('01799000001');
+  const [selectedPaybotPass, setSelectedPaybotPass] = useState('paybot1234');
+  const paybotIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-resume PayBot connection on mount: ALWAYS stays connected even when app is closed / phone reboots
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const isAlwaysOn = localStorage.getItem('ff_paybot_always_connected') === 'true';
+      const savedPhone = localStorage.getItem('ff_paybot_connected_phone') || '01799000001';
+      const savedName = localStorage.getItem('ff_paybot_connected_name') || 'PAYBOT_DEVICE_1';
+
+      let nativeRunning = false;
+      if ((window as any).AndroidBridge?.isPayBotAlwaysOn) {
+        try {
+          nativeRunning = (window as any).AndroidBridge.isPayBotAlwaysOn();
+        } catch {}
+      }
+
+      if (isAlwaysOn || nativeRunning) {
+        setIsPaybotConnected(true);
+        setPaybotLastPing(new Date().toLocaleTimeString());
+        if (savedPhone) setSelectedPaybotPhone(savedPhone);
+
+        // Ensure native Android 24/7 background service is active
+        if ((window as any).AndroidBridge?.startPayBotAlwaysOn) {
+          try {
+            (window as any).AndroidBridge.startPayBotAlwaysOn(savedPhone, savedName);
+          } catch {}
+        }
+
+        // Maintain web-level heartbeat interval
+        if (paybotIntervalRef.current) clearInterval(paybotIntervalRef.current);
+        paybotIntervalRef.current = setInterval(async () => {
+          try {
+            await fetch('/api/webhook/payment?key=ff_rivals_secure_sms_key_2026', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': 'ff_rivals_secure_sms_key_2026',
+                'x-device-name': savedName,
+              },
+              body: JSON.stringify({
+                type: 'PING',
+                deviceName: `${savedName} (${savedPhone})`,
+                phone: savedPhone,
+                battery: paybotBattery,
+                status: 'ONLINE',
+              }),
+            });
+            setPaybotLastPing(new Date().toLocaleTimeString());
+          } catch {}
+        }, 10000);
+      }
+    } catch {}
+  }, []);
+
+  const handlePaybotConnect = async (customUser?: any) => {
+    setIsPaybotConnecting(true);
+    try {
+      let activeCur = customUser || currentUser;
+      if (!activeCur || (!activeCur.id?.startsWith('u-paybot') && !activeCur.phone?.startsWith('0179900000') && activeCur.role !== 'ADMIN')) {
+        const loginRes = await loginUser(selectedPaybotPhone, selectedPaybotPass);
+        if (!loginRes.success || !loginRes.user) {
+          throw new Error(loginRes.error || 'লগইন ব্যর্থ হয়েছে');
+        }
+        activeCur = loginRes.user;
+        setCurrentUser(activeCur);
+      }
+
+      const activePhone = activeCur?.phone || selectedPaybotPhone;
+      const activeName = activeCur?.ign || 'PAYBOT_DEVICE_1';
+
+      if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+        try { await Notification.requestPermission(); } catch {}
+      }
+
+      // 1. Trigger Native Android 24/7 Background Service
+      if (typeof window !== 'undefined' && (window as any).AndroidBridge?.startPayBotAlwaysOn) {
+        try {
+          (window as any).AndroidBridge.startPayBotAlwaysOn(activePhone, activeName);
+        } catch {}
+      }
+
+      // 2. Persist in localStorage so app closing or exit NEVER disconnects
+      try {
+        localStorage.setItem('ff_paybot_always_connected', 'true');
+        localStorage.setItem('ff_paybot_connected_phone', activePhone);
+        localStorage.setItem('ff_paybot_connected_name', activeName);
+      } catch {}
+
+      await fetch('/api/webhook/payment?key=ff_rivals_secure_sms_key_2026', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': 'ff_rivals_secure_sms_key_2026',
+          'x-device-name': activeName,
+        },
+        body: JSON.stringify({
+          type: 'PING',
+          deviceName: `${activeName} (${activePhone})`,
+          phone: activePhone,
+          battery: paybotBattery,
+          status: 'ONLINE',
+        }),
+      });
+
+      setIsPaybotConnected(true);
+      setPaybotLastPing(new Date().toLocaleTimeString());
+
+      if (paybotIntervalRef.current) clearInterval(paybotIntervalRef.current);
+      paybotIntervalRef.current = setInterval(async () => {
+        try {
+          await fetch('/api/webhook/payment?key=ff_rivals_secure_sms_key_2026', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': 'ff_rivals_secure_sms_key_2026',
+              'x-device-name': activeName,
+            },
+            body: JSON.stringify({
+              type: 'PING',
+              deviceName: `${activeName} (${activePhone})`,
+              phone: activePhone,
+              battery: paybotBattery,
+              status: 'ONLINE',
+            }),
+          });
+          setPaybotLastPing(new Date().toLocaleTimeString());
+        } catch {}
+      }, 10000);
+
+      showPhoneToast('ডিভাইস সর্বদা সক্রিয় মোডে কানেক্ট হয়েছে ✅ (গেম খেললেও কানেক্ট থাকবে)');
+    } catch (e: any) {
+      showPhoneToast('কানেক্ট ব্যর্থ: ' + e.message);
+    } finally {
+      setIsPaybotConnecting(false);
+    }
+  };
+
+  const handlePaybotDisconnect = () => {
+    if (paybotIntervalRef.current) clearInterval(paybotIntervalRef.current);
+    setIsPaybotConnected(false);
+    try {
+      localStorage.removeItem('ff_paybot_always_connected');
+      localStorage.removeItem('ff_paybot_connected_phone');
+      localStorage.removeItem('ff_paybot_connected_name');
+      if (typeof window !== 'undefined' && (window as any).AndroidBridge?.stopPayBotAlwaysOn) {
+        (window as any).AndroidBridge.stopPayBotAlwaysOn();
+      }
+    } catch {}
+    showPhoneToast('ডিভাইস ডিসকানেক্ট করা হয়েছে');
   };
 
   // Tab Navigation History
@@ -801,6 +1057,9 @@ export default function MobileAppViewPage(props: any) {
 
   // Booked matches list (hydrated from persistent storage, starts 0)
   const [bookedMatchesList, setBookedMatchesList] = useState<UserBookedMatch[]>([]);
+  const [playedMatchesHistory, setPlayedMatchesHistory] = useState<UserBookedMatch[]>([]);
+  const [myMatchesSubTab, setMyMatchesSubTab] = useState<'active' | 'played'>('active');
+  const [selectedMatchForHistoryDetails, setSelectedMatchForHistoryDetails] = useState<any | null>(null);
   const [currentTickTime, setCurrentTickTime] = useState<number>(() => Date.now());
   const [botToast, setBotToast] = useState<string | null>(null);
 
@@ -810,15 +1069,21 @@ export default function MobileAppViewPage(props: any) {
   };
 
   useEffect(() => {
-    // Hydrate user booked matches from persistent storage
+    // Hydrate user booked matches and played history from persistent storage
     const storedBookings = getUserBookedMatches();
     setBookedMatchesList(storedBookings);
+    setPlayedMatchesHistory(getUserPlayedMatchesHistory());
 
     const handleBookingsUpdated = (e: any) => {
       setBookedMatchesList(e.detail || getUserBookedMatches());
+      setPlayedMatchesHistory(getUserPlayedMatchesHistory());
+    };
+    const handleHistoryUpdated = (e: any) => {
+      setPlayedMatchesHistory(e.detail || getUserPlayedMatchesHistory());
     };
     const handleCredentialsDelivered = () => {
       setBookedMatchesList(getUserBookedMatches());
+      setPlayedMatchesHistory(getUserPlayedMatchesHistory());
     };
 
     const onBotCmsTrigger = () => {
@@ -826,6 +1091,7 @@ export default function MobileAppViewPage(props: any) {
     };
 
     window.addEventListener('ff_user_bookings_updated', handleBookingsUpdated);
+    window.addEventListener('ff_user_played_history_updated', handleHistoryUpdated);
     window.addEventListener('ff_room_credentials_delivered', handleCredentialsDelivered);
     window.addEventListener('ff_cms_updated', onBotCmsTrigger);
     window.addEventListener('ff_match_added', onBotCmsTrigger);
@@ -838,6 +1104,7 @@ export default function MobileAppViewPage(props: any) {
 
     return () => {
       window.removeEventListener('ff_user_bookings_updated', handleBookingsUpdated);
+      window.removeEventListener('ff_user_played_history_updated', handleHistoryUpdated);
       window.removeEventListener('ff_room_credentials_delivered', handleCredentialsDelivered);
       window.removeEventListener('ff_cms_updated', onBotCmsTrigger);
       window.removeEventListener('ff_match_added', onBotCmsTrigger);
@@ -991,6 +1258,9 @@ export default function MobileAppViewPage(props: any) {
               uid: p.uid,
               slot: slotInfo.slotNumber,
               team: slotInfo.teamNumber,
+              userId: current?.id,
+              userPhone: current?.phone,
+              username: current?.username || current?.ign || 'Guest',
             }))
           : [
               {
@@ -998,6 +1268,9 @@ export default function MobileAppViewPage(props: any) {
                 uid: slotInfo.uid,
                 slot: slotInfo.slotNumber,
                 team: slotInfo.teamNumber,
+                userId: current?.id,
+                userPhone: current?.phone,
+                username: current?.username || current?.ign || 'Guest',
               },
             ];
 
@@ -1031,6 +1304,7 @@ export default function MobileAppViewPage(props: any) {
                 roomDeliveredAt: bookingModalMatch.status === 'ROOM_OPEN' ? (bookingModalMatch.roomDeliveredAt || new Date().toISOString()) : undefined,
                 userId: current?.id,
                 userPhone: current?.phone,
+                username: current?.username || current?.ign || 'Guest',
               })
             )
           : [
@@ -1050,6 +1324,7 @@ export default function MobileAppViewPage(props: any) {
                 roomDeliveredAt: bookingModalMatch.status === 'ROOM_OPEN' ? (bookingModalMatch.roomDeliveredAt || new Date().toISOString()) : undefined,
                 userId: current?.id,
                 userPhone: current?.phone,
+                username: current?.username || current?.ign || 'Guest',
               }),
             ];
 
@@ -1083,49 +1358,41 @@ export default function MobileAppViewPage(props: any) {
     [selectedCategory, matches]
   );
 
-  const [subTypeFilter, setSubTypeFilter] = useState<'SOLO' | 'DUO' | 'SQUAD'>('SOLO');
+  const [subTypeFilter, setSubTypeFilter] = useState<'ALL' | 'SOLO' | 'DUO' | 'SQUAD'>('ALL');
   const filteredCurrentMatches = React.useMemo(() => {
     return currentCategoryMatches.filter((m) => {
       const typeStr = (m.type || m.matchType || '').toUpperCase();
       const titleStr = (m.title || '').toUpperCase();
-      const is1v1OrSolo =
-        typeStr === 'SOLO' ||
-        typeStr === '1 VS 1' ||
-        typeStr === '1V1' ||
-        typeStr.includes('1 VS 1') ||
-        typeStr.includes('1V1') ||
-        titleStr.includes('1V1') ||
-        titleStr.includes('1 VS 1') ||
-        typeStr.includes('SOLO') ||
-        titleStr.includes('SOLO') ||
-        titleStr.includes('সোলো') ||
-        (m.totalSlots <= 2 && !typeStr.includes('DUO') && !titleStr.includes('DUO') && !typeStr.includes('2 VS 2') && !typeStr.includes('2V2'));
-
       const isDuoMatch =
-        !is1v1OrSolo &&
-        (typeStr === 'DUO' ||
-          typeStr.includes('DUO') ||
-          titleStr.includes('DUO') ||
-          titleStr.includes('ডুও') ||
-          typeStr.includes('2 VS 2') ||
-          typeStr.includes('2V2') ||
-          titleStr.includes('2V2') ||
-          titleStr.includes('2 VS 2') ||
-          m.totalSlots === 4 ||
-          (m.totalSlots === 24 && !typeStr.includes('SQUAD')));
+        m.totalSlots === 4 ||
+        typeStr === 'DUO' ||
+        typeStr === '2 VS 2' ||
+        typeStr === '2V2' ||
+        typeStr.includes('2 VS 2') ||
+        typeStr.includes('2V2') ||
+        typeStr.includes('DUO') ||
+        titleStr.includes('DUO') ||
+        titleStr.includes('ডুও') ||
+        titleStr.includes('2V2') ||
+        titleStr.includes('2 VS 2') ||
+        (m.totalSlots === 24 && !typeStr.includes('SQUAD'));
 
       const isSquadMatch =
-        typeStr === 'SQUAD' ||
-        typeStr.includes('SQUAD') ||
-        titleStr.includes('SQUAD') ||
-        titleStr.includes('স্কোয়াড') ||
-        typeStr.includes('4V4') ||
-        typeStr.includes('4 VS 4') ||
-        titleStr.includes('4V4') ||
-        titleStr.includes('4 VS 4') ||
-        m.totalSlots === 8 ||
-        (m.totalSlots === 48 && !is1v1OrSolo && !isDuoMatch);
+        !isDuoMatch &&
+        (m.totalSlots === 8 ||
+          m.totalSlots === 48 ||
+          typeStr === 'SQUAD' ||
+          typeStr.includes('SQUAD') ||
+          titleStr.includes('SQUAD') ||
+          titleStr.includes('স্কোয়াড') ||
+          typeStr.includes('4V4') ||
+          typeStr.includes('4 VS 4') ||
+          titleStr.includes('4V4') ||
+          titleStr.includes('4 VS 4'));
 
+      const is1v1OrSolo = !isDuoMatch && !isSquadMatch;
+
+      if (subTypeFilter === 'ALL') return true;
       if (subTypeFilter === 'SOLO') {
         return is1v1OrSolo;
       }
@@ -1141,7 +1408,7 @@ export default function MobileAppViewPage(props: any) {
 
   // Reset filter to SOLO whenever selected category changes
   useEffect(() => {
-    setSubTypeFilter('SOLO');
+    setSubTypeFilter('ALL');
   }, [selectedCategory]);
 
   return (
@@ -1383,7 +1650,18 @@ export default function MobileAppViewPage(props: any) {
                           </button>
                         </div>
 
-                        {/* Support Icon */}
+                        {/* PayBot Button - STRICTLY ONLY for Owner / Admin IDs */}
+                        {isOwnerUser && (
+                          <button
+                            type="button"
+                            onClick={() => setShowPayBotModal(true)}
+                            title="PayBot Mobile Connector"
+                            className="px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-600 border border-emerald-500/40 text-[10px] font-black flex items-center gap-1 shadow-xs active:scale-95"
+                          >
+                            <Zap className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                            <span>PayBot</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={handleOpenSupport}
@@ -1476,6 +1754,19 @@ export default function MobileAppViewPage(props: any) {
                           <Wallet className="w-3 h-3" /> ৳{userBalance.toFixed(0)}
                         </button>
 
+                        {/* PayBot Header Button - STRICTLY ONLY for Owner / Admin IDs */}
+                        {isOwnerUser && (
+                          <button
+                            type="button"
+                            onClick={() => setShowPayBotModal(true)}
+                            title="PayBot Mobile Connector"
+                            className="px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 text-[10px] font-black flex items-center gap-1 shadow-xs active:scale-95 cursor-pointer"
+                          >
+                            <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 animate-pulse" />
+                            <span>PayBot</span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={handleOpenSupport}
@@ -1492,6 +1783,28 @@ export default function MobileAppViewPage(props: any) {
                     </div>
                   )}
                 </div>
+
+                {/* PAYBOT HOME FLOATING BANNER - STRICTLY ONLY for Owner / Admin IDs */}
+                {isOwnerUser && (
+                  <div
+                    onClick={() => setShowPayBotModal(true)}
+                    className="flex-shrink-0 cursor-pointer bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-3.5 py-2 flex items-center justify-between text-xs font-bold shadow-md shadow-emerald-950/20 border-b border-emerald-400/30"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${isPaybotConnected ? 'bg-emerald-200 animate-ping' : 'bg-amber-300'}`} />
+                      <span className="font-black tracking-wide text-[11px]">⚡ PayBot অটো-কালেক্টর</span>
+                      <span className="text-[9px] bg-black/30 px-2 py-0.5 rounded-full text-emerald-200">
+                        {currentUser?.ign || 'PAYBOT_DEVICE'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-2.5 py-0.5 rounded-lg bg-black/40 hover:bg-black/60 text-[10px] font-black flex items-center gap-1 text-white border border-white/20"
+                    >
+                      <span>{isPaybotConnected ? 'ONLINE ✅' : 'ফোনে এক্সেস দিন'}</span> &rarr;
+                    </button>
+                  </div>
+                )}
 
                 {/* Success Banner */}
                 {joinedSuccess && (
@@ -1571,7 +1884,7 @@ export default function MobileAppViewPage(props: any) {
                               }`}
                             >
                               <span>
-                                {tPhone('সক্রিয় ম্যাচ', 'Active Matches')} ({filteredCurrentMatches.length})
+                                Active Matches ({filteredCurrentMatches.length})
                               </span>
                             </button>
                             <button
@@ -1584,32 +1897,51 @@ export default function MobileAppViewPage(props: any) {
                             >
                               <Award className="w-3.5 h-3.5 text-amber-500" />
                               <span>
-                                {tPhone('ম্যাচ ফলাফল', 'Match Results')} ({completedCategoryMatches.length})
+                                Match Results ({completedCategoryMatches.length})
                               </span>
                             </button>
                           </div>
 
-                          {/* Match Sub-Type Switcher (Solo, Duo, Squad) */}
-                          <div className="flex items-center gap-1 p-1 rounded-xl border border-gray-200 bg-white shadow-xs">
-                            {[
-                              { key: 'SOLO', labelBn: 'সোলো (Solo)', labelEn: 'Solo' },
-                              { key: 'DUO', labelBn: 'ডুও (Duo)', labelEn: 'Duo' },
-                              { key: 'SQUAD', labelBn: 'স্কোয়াড (Squad)', labelEn: 'Squad' },
-                            ].map((item) => (
-                              <button
-                                key={item.key}
-                                type="button"
-                                onClick={() => setSubTypeFilter(item.key as any)}
-                                className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all text-center ${
-                                  subTypeFilter === item.key
-                                    ? 'bg-red-600 text-white shadow font-black'
-                                    : 'text-gray-600 hover:text-gray-900 font-bold'
-                                }`}
-                              >
-                                {tPhone(item.labelBn, item.labelEn)}
-                              </button>
-                            ))}
-                          </div>
+                          {/* Match Sub-Type Switcher (All Category Options strictly in English) */}
+                          {(() => {
+                            const isLostToWin = selectedCategory === 'lost-to-win' || (selectedCategory || '').toLowerCase().includes('lost');
+                            const isLoneWolf = selectedCategory === 'lone-wolf' || (selectedCategory || '').toLowerCase().includes('lone') || (selectedCategory || '').toLowerCase().includes('wolf');
+
+                            let items = [
+                              { key: 'SOLO', label: 'Solo' },
+                              { key: 'DUO', label: 'Duo' },
+                              { key: 'SQUAD', label: 'Squad' },
+                            ];
+
+                            if (isLostToWin) {
+                              items = [{ key: 'SOLO', label: 'Solo' }];
+                            } else if (isLoneWolf) {
+                              // Squad completely removed from all Lone Wolf variants!
+                              items = [
+                                { key: 'SOLO', label: 'Solo' },
+                                { key: 'DUO', label: 'Duo' },
+                              ];
+                            }
+
+                            return (
+                              <div className="flex items-center gap-1 p-1 rounded-xl border border-gray-200 bg-white shadow-xs">
+                                {items.map((item) => (
+                                  <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => setSubTypeFilter(item.key as any)}
+                                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all text-center cursor-pointer ${
+                                      subTypeFilter === item.key
+                                        ? 'bg-red-600 text-white shadow font-black'
+                                        : 'text-gray-600 hover:text-gray-900 font-bold'
+                                    }`}
+                                  >
+                                    {item.label}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()}
 
                           {categoryTab === 'PLAY' ? (
                             filteredCurrentMatches.length === 0 ? (
@@ -1625,9 +1957,9 @@ export default function MobileAppViewPage(props: any) {
                           ) : (
                             filteredCurrentMatches.map((m) => {
                               const matchBookings = bookedMatchesList
-                                .filter((bm) => bm.title === m.title)
+                                .filter((bm) => bm.title === m.title || bm.matchId === m.id)
                                 .map((bm) => bm.ign);
-                              const filled = m.filledSlots || matchBookings.length || 0;
+                              const filled = Math.max(m.filledSlots || 0, Array.isArray(m.participants) ? m.participants.length : 0, matchBookings.length);
                               const spotsLeft = Math.max(0, m.totalSlots - filled);
 
                               return (
@@ -1657,7 +1989,7 @@ export default function MobileAppViewPage(props: any) {
                                     {/* Notice text on right */}
                                     <div className="flex-1 min-w-0">
                                       <p className="text-[10px] font-bold text-gray-800 leading-snug">
-                                        কাস্টমে নিজের জায়গায় বসতে হবে বাধ্যতামূলক - আইডি লেভেল ৫৫+ থাকতে হবে -
+                                        কাস্টমে নিজের জায়গায় বসতে হবে বাধ্যতামূলক - আইডি লেভেল ৪০+ থাকতে হবে -
                                         Normal {m.type} ম্যাচের নিয়ম পড়ে নিন, নিয়ম না মানলে রিফান্ড বা উইনিং
                                         পাবেন না! {settings?.siteName || 'FF RIVAL TOUR BD'}
                                       </p>
@@ -1925,15 +2257,15 @@ export default function MobileAppViewPage(props: any) {
                               <div className="animate-train-marquee text-[11px] font-black text-gray-900 tracking-wide inline-flex items-center gap-8">
                                 <span>
                                   {settings?.noticeText || tPhone(
-                                    '🔥 FF RIVAL TOUR BD-তে স্বাগতম! প্রতিদিন টুর্নামেন্ট খেলুন এবং বিকাশ/নগদে প্রাইজ গ্রহণ করুন! 🏆 আইডি লেভেল ৫৫+ বাধ্যতামূলক • ১০০% ফেয়ার ও হ্যাকমুক্ত টুর্নামেন্ট!',
-                                    '🔥 Welcome to FF RIVAL TOUR BD! Play daily tournaments & win cash via bKash/Nagad! 🏆 Level 55+ Required • 100% Fair Gameplay!'
+                                    '🔥 FF RIVAL TOUR BD-তে স্বাগতম! প্রতিদিন টুর্নামেন্ট খেলুন এবং বিকাশ/নগদে প্রাইজ গ্রহণ করুন! 🏆 আইডি লেভেল ৪০+ বাধ্যতামূলক • ১০০% ফেয়ার ও হ্যাকমুক্ত টুর্নামেন্ট!',
+                                    '🔥 Welcome to FF RIVAL TOUR BD! Play daily tournaments & win cash via bKash/Nagad! 🏆 Level 40+ Required • 100% Fair Gameplay!'
                                   )}
                                 </span>
                                 <span aria-hidden="true" className="text-red-600 font-black">•</span>
                                 <span aria-hidden="true">
                                   {settings?.noticeText || tPhone(
-                                    '🔥 FF RIVAL TOUR BD-তে স্বাগতম! প্রতিদিন টুর্নামেন্ট খেলুন এবং বিকাশ/নগদে প্রাইজ গ্রহণ করুন! 🏆 আইডি লেভেল ৫৫+ বাধ্যতামূলক • ১০০% ফেয়ার ও হ্যাকমুক্ত টুর্নামেন্ট!',
-                                    '🔥 Welcome to FF RIVAL TOUR BD! Play daily tournaments & win cash via bKash/Nagad! 🏆 Level 55+ Required • 100% Fair Gameplay!'
+                                    '🔥 FF RIVAL TOUR BD-তে স্বাগতম! প্রতিদিন টুর্নামেন্ট খেলুন এবং বিকাশ/নগদে প্রাইজ গ্রহণ করুন! 🏆 আইডি লেভেল ৪০+ বাধ্যতামূলক • ১০০% ফেয়ার ও হ্যাকমুক্ত টুর্নামেন্ট!',
+                                    '🔥 Welcome to FF RIVAL TOUR BD! Play daily tournaments & win cash via bKash/Nagad! 🏆 Level 40+ Required • 100% Fair Gameplay!'
                                   )}
                                 </span>
                               </div>
@@ -1967,12 +2299,18 @@ export default function MobileAppViewPage(props: any) {
                                 </div>
                               );
 
-                              if (slide.actionUrl) {
+                              // First slider strictly links to official Telegram as requested by user
+                              const targetUrl =
+                                (idx === 0 || slide.id === 'slide-1')
+                                  ? 'https://t.me/ffrivalstourbdofficial'
+                                  : (slide.actionUrl || null);
+
+                              if (targetUrl) {
                                 return (
                                   <a
                                     key={slide.id || idx}
-                                    href={slide.actionUrl}
-                                    target={slide.actionUrl.startsWith('http') ? '_blank' : '_self'}
+                                    href={targetUrl}
+                                    target={targetUrl.startsWith('http') ? '_blank' : '_self'}
                                     rel="noreferrer"
                                     className="cursor-pointer"
                                   >
@@ -2001,50 +2339,135 @@ export default function MobileAppViewPage(props: any) {
                             )}
                           </div>
 
-                          {/* Category Cards Section */}
-                          <div className="space-y-2">
-                            <div className="text-[11px] font-black uppercase tracking-wider text-gray-500 dark:text-gray-400 px-1">
-                              {tPhone('গেম ক্যাটাগরি (Select Mode)', 'Game Categories (Select Mode)')}
-                            </div>
+                          {/* Category Cards Grouped by Parent Section - Exactly matching User Screenshot & Website */}
+                          {(() => {
+                            const allCats = categoriesList;
+                            const norm = (s: string = '') => (s || '').trim().toUpperCase();
 
-                            <div className="grid grid-cols-2 gap-2">
-                              {categoriesList.map((cat) => {
-                                const count = matches.filter((m) => m.categorySlug === cat.slug && !isMatchFinished(m)).length;
-                                const catImgSrc = (cat.bannerImage && !cat.bannerImage.includes('unsplash.com'))
-                                  ? cat.bannerImage
-                                  : (INITIAL_CATEGORIES[cat.slug]?.bannerImage || cat.avatarImage || '/logo.png');
-                                return (
-                                  <div
-                                    key={cat.slug}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setSelectedCategory(cat.slug)}
-                                    className="group cursor-pointer rounded-xl overflow-hidden relative border border-white/10 shadow hover:border-red-500 active:scale-[0.96] transition-transform duration-100 ease-out h-28 flex flex-col justify-end p-2 bg-slate-900 touch-manipulation hover:shadow-lg"
-                                  >
-                                    <img
-                                      src={catImgSrc}
-                                      alt={cat.name}
-                                      loading="eager"
-                                      decoding="async"
-                                      onError={(e) => {
-                                        (e.target as HTMLImageElement).src = INITIAL_CATEGORIES[cat.slug]?.bannerImage || '/logo.png';
-                                      }}
-                                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform opacity-90"
-                                    />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent"></div>
-                                    <div className="relative z-10">
-                                      <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-red-600 text-white inline-block mb-0.5">
-                                        {count} {tPhone('ম্যাচ', 'Matches')}
-                                      </span>
-                                      <h4 className="text-[11px] font-black text-white leading-tight">
-                                        {cat.name}
-                                      </h4>
+                            // 1. SECTION 1: TOP 4 TOURNAMENTS (2x2 grid, NO section header)
+                            // Exactly: CLASSIC MATCH, CLASH SQUAD, LONE WOLF, LOST TO WIN
+                            const main4Slugs = ['classic-match', 'clash-squad', 'lone-wolf', 'lost-to-win'];
+                            const mainTournaments: any[] = [];
+                            for (const slug of main4Slugs) {
+                              const found = allCats.find((c) => c.slug === slug);
+                              if (found) {
+                                mainTournaments.push(found);
+                              } else if (INITIAL_CATEGORIES[slug]) {
+                                mainTournaments.push(INITIAL_CATEGORIES[slug]);
+                              }
+                            }
+
+                            // 2. SECTION 2: ONLY HEADSHOT
+                            // Exactly: CS ONLY HEADSHOT, LONE WOLF HEADSHOT (and any custom headshot tournaments)
+                            const headshotCats = allCats.filter((c) => {
+                              if (main4Slugs.includes(c.slug)) return false;
+                              const s = norm(c.section);
+                              const slug = (c.slug || '').toLowerCase();
+                              const name = (c.name || '').toUpperCase();
+                              return s.includes('HEADSHOT') || slug.includes('headshot') || name.includes('HEADSHOT');
+                            });
+                            // Deduplicate lone-wolf-headshot / lone-walf-headshot variants:
+                            const seenHeadshot = new Set<string>();
+                            const cleanHeadshot: any[] = [];
+                            for (const c of headshotCats) {
+                              const key = c.slug === 'lone-walf-headshot' ? 'lone-wolf-headshot' : c.slug;
+                              if (!seenHeadshot.has(key)) {
+                                seenHeadshot.add(key);
+                                cleanHeadshot.push(c);
+                              }
+                            }
+                            if (!cleanHeadshot.some((c) => (c.slug || '').includes('lone')) && INITIAL_CATEGORIES['lone-wolf-headshot']) {
+                              cleanHeadshot.push(INITIAL_CATEGORIES['lone-wolf-headshot']);
+                            }
+
+                            // 3. SECTION 3: OTHER TOURNAMENTS
+                            // Exactly: SPECIAL MATCH, FREE MATCH, and any other custom tournaments
+                            const handledSlugs = new Set([
+                              ...mainTournaments.map((c) => c.slug),
+                              ...headshotCats.map((c) => c.slug),
+                              'lone-walf-headshot',
+                              'lone-wolf-headshot',
+                            ]);
+                            const otherCats = allCats.filter((c) => !handledSlugs.has(c.slug));
+                            if (!otherCats.some((c) => c.slug === 'free-match') && INITIAL_CATEGORIES['free-match']) {
+                              otherCats.push(INITIAL_CATEGORIES['free-match']);
+                            }
+
+                            const renderCard = (cat: any) => {
+                              const count = matches.filter((m) => m.categorySlug === cat.slug && !isMatchFinished(m)).length;
+                              const catImgSrc = (cat.bannerImage && !cat.bannerImage.includes('unsplash.com'))
+                                ? cat.bannerImage
+                                : (INITIAL_CATEGORIES[cat.slug]?.bannerImage || cat.avatarImage || '/logo.png');
+                              return (
+                                <div
+                                  key={cat.slug}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setSelectedCategory(cat.slug)}
+                                  className="group cursor-pointer rounded-xl overflow-hidden relative border border-white/10 shadow hover:border-red-500 active:scale-[0.96] transition-transform duration-100 ease-out h-28 flex flex-col justify-end p-2 bg-slate-900 touch-manipulation hover:shadow-lg"
+                                >
+                                  <img
+                                    src={catImgSrc}
+                                    alt={cat.name}
+                                    loading="eager"
+                                    decoding="async"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = INITIAL_CATEGORIES[cat.slug]?.bannerImage || '/logo.png';
+                                    }}
+                                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform opacity-90"
+                                  />
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent"></div>
+                                  <div className="relative z-10">
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-red-600 text-white inline-block mb-0.5">
+                                      {count} {tPhone('ম্যাচ', 'Matches')}
+                                    </span>
+                                    <h4 className="text-[11px] font-black text-white leading-tight truncate">
+                                      {cat.name}
+                                    </h4>
+                                  </div>
+                                </div>
+                              );
+                            };
+
+                            return (
+                              <div className="space-y-4">
+                                {/* SECTION 1: TOP 4 TOURNAMENTS (Header removed as in user screenshot) */}
+                                {mainTournaments.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {mainTournaments.map(renderCard)}
                                     </div>
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+                                )}
+
+                                {/* SECTION 2: ONLY HEADSHOT */}
+                                {cleanHeadshot.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 px-1 flex items-center justify-between border-b border-gray-100 dark:border-white/5 pb-1">
+                                      <span>🎯 {tPhone('ওনলি হেডশট (ONLY HEADSHOT)', 'ONLY HEADSHOT')}</span>
+                                      <span className="text-[9px] text-gray-400 font-bold">{cleanHeadshot.length} Categories</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {cleanHeadshot.map(renderCard)}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* SECTION 3: OTHER TOURNAMENTS */}
+                                {otherCats.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="text-[11px] font-black uppercase tracking-wider text-gray-700 dark:text-gray-300 px-1 flex items-center justify-between border-b border-gray-100 dark:border-white/5 pb-1">
+                                      <span>⭐ {tPhone('অন্যান্য টুর্নামেন্ট (OTHER TOURNAMENTS)', 'OTHER TOURNAMENTS')}</span>
+                                      <span className="text-[9px] text-gray-400 font-bold">{otherCats.length} Categories</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {otherCats.map(renderCard)}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </>
@@ -2094,7 +2517,7 @@ export default function MobileAppViewPage(props: any) {
                       // 8 minutes = 8 * 60 * 1000 = 480,000 ms
                       const EIGHT_MIN_MS = 8 * 60 * 1000;
                       if (deliveredMs && currentTickTime - deliveredMs >= EIGHT_MIN_MS) {
-                        return false; // Auto expired after 8 minutes ("৮ মিনিট এর পরে অটো চলে যাবে")
+                        return false; // Auto expired after 8 minutes ("৮ মিনিট পর অটোমেটিক চলে যাবে")
                       }
 
                       return true;
@@ -2106,8 +2529,103 @@ export default function MobileAppViewPage(props: any) {
                       return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
                     };
 
+                    // Compile permanent played matches list
+                    const participantMatches = matches.filter((m) => {
+                      if (!currentUser) return false;
+                      return m.participants?.some(
+                        (p: any) =>
+                          (p.userId && p.userId === currentUser.id) ||
+                          (p.userPhone && p.userPhone === currentUser.phone) ||
+                          (p.uid && p.uid === currentUser.uid) ||
+                          (p.ign && currentUser.ign && p.ign.toUpperCase().trim() === currentUser.ign.toUpperCase().trim())
+                      );
+                    });
+
+                    const extraFromCms: UserBookedMatch[] = participantMatches.map((m) => {
+                      const p: any = m.participants?.find(
+                        (part: any) =>
+                          (part.userId && part.userId === currentUser?.id) ||
+                          (part.userPhone && part.userPhone === currentUser?.phone) ||
+                          (part.uid && part.uid === currentUser?.uid) ||
+                          (part.ign && currentUser?.ign && part.ign.toUpperCase().trim() === currentUser?.ign.toUpperCase().trim())
+                      );
+                      return {
+                        id: `cms-${m.id}-${p?.slot || 1}`,
+                        matchId: m.id,
+                        title: m.title,
+                        time: m.time,
+                        slot: p?.slot || 1,
+                        ign: p?.ign || currentUser?.ign || 'Player',
+                        uid: p?.uid || currentUser?.uid,
+                        categorySlug: m.categorySlug,
+                        type: m.type,
+                        map: m.map,
+                        entryFee: m.entryFee,
+                        prizePool: m.prizePool,
+                        bookedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
+                        team: p?.team,
+                      };
+                    });
+
+                    const combinedPlayedMap = new Map<string, any>();
+                    [...playedMatchesHistory, ...extraFromCms, ...bookedMatchesList].forEach((item) => {
+                      if (!item) return;
+                      if (currentUser) {
+                        if (item.userId && item.userId !== currentUser.id) return;
+                        if (item.userPhone && item.userPhone !== currentUser.phone) return;
+                        if (item.uid && item.uid !== currentUser.uid && !item.userId) return;
+                      }
+                      const key = item.matchId || item.id;
+                      if (!combinedPlayedMap.has(key)) {
+                        combinedPlayedMap.set(key, item);
+                      }
+                    });
+
+                    const allPlayedMatches = Array.from(combinedPlayedMap.values());
+
                     return (
                       <div className="space-y-3">
+                        {/* Upper Side Option Selector */}
+                        <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setMyMatchesSubTab('active')}
+                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                              myMatchesSubTab === 'active'
+                                ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-md shadow-red-600/30'
+                                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                            }`}
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{tPhone('বুক করা ম্যাচ (চলমান)', 'Active Bookings')}</span>
+                            {activeBookedMatches.length > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-white text-red-600 text-[10px] inline-flex items-center justify-center font-black">
+                                {activeBookedMatches.length}
+                              </span>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setMyMatchesSubTab('played')}
+                            className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                              myMatchesSubTab === 'played'
+                                ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-md shadow-red-600/30'
+                                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900'
+                            }`}
+                          >
+                            <Trophy className="w-3.5 h-3.5" />
+                            <span>{tPhone('আমার খেলা ম্যাচ (হিস্ট্রি)', 'Played Matches')}</span>
+                            {allPlayedMatches.length > 0 && (
+                              <span className={`w-4 h-4 rounded-full text-[10px] inline-flex items-center justify-center font-black ${myMatchesSubTab === 'played' ? 'bg-white text-red-600' : 'bg-red-500 text-white'}`}>
+                                {allPlayedMatches.length}
+                              </span>
+                            )}
+                          </button>
+                        </div>
+
+                        {myMatchesSubTab === 'active' && (
+                          <>
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-black uppercase tracking-wider text-red-600">
                             {tPhone(`আপনার বুক করা ম্যাচ (${activeBookedMatches.length})`, `Your Booked Matches (${activeBookedMatches.length})`)}
@@ -2140,23 +2658,24 @@ export default function MobileAppViewPage(props: any) {
                             const isWithin5Minutes = diffMs > 0 && diffMs <= 5 * 60 * 1000;
                             const isRoomOpenStatus = liveMatch?.status === 'ROOM_OPEN' || liveMatch?.status === 'LIVE';
                             const hasCredentials = Boolean(liveMatch?.roomId || bm.roomId);
-                            const isRoomReady = Boolean(hasCredentials && (isWithin5Minutes || isRoomOpenStatus));
-                            const currentRoomId = isRoomReady ? (liveMatch?.roomId || bm.roomId) : null;
-                            const currentRoomPass = isRoomReady ? (liveMatch?.roomPass || bm.roomPass || '1234') : null;
 
+                            const EIGHT_MIN_MS = 8 * 60 * 1000;
                             const deliveredIso = bm.roomDeliveredAt || (liveMatch as any)?.roomDeliveredAt || (liveMatch as any)?.deliveredAt;
                             let deliveredMs: number | null = null;
                             if (deliveredIso) {
                               const parsed = new Date(deliveredIso).getTime();
                               if (!isNaN(parsed)) deliveredMs = parsed;
-                            } else if (isRoomReady && matchDate) {
+                            } else if (hasCredentials && (isWithin5Minutes || isRoomOpenStatus) && matchDate) {
                               deliveredMs = Math.min(matchDate.getTime() - 5 * 60 * 1000, currentTickTime);
-                            } else if (isRoomReady) {
+                            } else if (hasCredentials && (isWithin5Minutes || isRoomOpenStatus)) {
                               deliveredMs = currentTickTime;
                             }
 
-                            const EIGHT_MIN_MS = 8 * 60 * 1000;
+                            const isRoomExpired = Boolean(deliveredMs && currentTickTime - deliveredMs >= EIGHT_MIN_MS);
                             const remainingSeconds = deliveredMs ? Math.max(0, Math.floor((deliveredMs + EIGHT_MIN_MS - currentTickTime) / 1000)) : null;
+                            const isRoomReady = Boolean(hasCredentials && (isWithin5Minutes || isRoomOpenStatus) && !isRoomExpired && (remainingSeconds === null || remainingSeconds > 0));
+                            const currentRoomId = isRoomReady ? (liveMatch?.roomId || bm.roomId) : null;
+                            const currentRoomPass = isRoomReady ? (liveMatch?.roomPass || bm.roomPass || '1234') : null;
 
                             return (
                               <div
@@ -2174,19 +2693,22 @@ export default function MobileAppViewPage(props: any) {
 
                                 {/* Player IGN & Slot Info */}
                                 <div
-                                  onClick={() =>
+                                  onClick={() => {
+                                    const matchStats = topPlayers.find(
+                                      (tp) => tp.ign.toLowerCase().trim() === bm.ign.toLowerCase().trim()
+                                    );
+                                    const isCurrent = currentUser?.ign && currentUser.ign.toLowerCase().trim() === bm.ign.toLowerCase().trim();
+                                    const avatar = matchStats?.avatar || (isCurrent ? currentUser?.avatar : undefined) || '/avatars/avatar-1.png';
                                     setSelectedPlayerForDetails({
                                       ign: bm.ign,
-                                      uid: bm.uid,
-                                      kills: 142,
-                                      earnings: 8600,
-                                      matchesPlayed: 38,
-                                      booyahs: 12,
-                                      winRate: '42.8%',
-                                      level: 72,
-                                      guild: 'BD_RIVALS_ELITE',
-                                    })
-                                  }
+                                      uid: '',
+                                      avatar,
+                                      kills: matchStats ? matchStats.kills : 0,
+                                      earnings: matchStats ? matchStats.earnings : 0,
+                                      matchesPlayed: matchStats ? matchStats.matchesPlayed : 1,
+                                      booyahs: matchStats ? matchStats.booyahs : 0,
+                                    });
+                                  }}
                                   className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 cursor-pointer border border-gray-200 flex items-center justify-between text-xs transition-all"
                                   title={tPhone('প্লেয়ার ডিটেইলস দেখুন', 'Click to view player details')}
                                 >
@@ -2342,6 +2864,169 @@ export default function MobileAppViewPage(props: any) {
                             'Warning: Sharing Room ID & Password with outsiders will result in an instant permanent ban. Room closes 8 minutes after release.'
                           )}
                         </div>
+                          </>
+                        )}
+
+                        {/* SUBTAB 2: PLAYED MATCHES & DETAILS (USER'S MATCH HISTORY) */}
+                        {myMatchesSubTab === 'played' && (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black uppercase tracking-wider text-amber-500 flex items-center gap-1.5">
+                                <Trophy className="w-3.5 h-3.5" />
+                                {tPhone(`আমার খেলা ম্যাচসমূহ (${allPlayedMatches.length})`, `My Played Matches History (${allPlayedMatches.length})`)}
+                              </span>
+                              <span className="text-[10px] font-bold text-gray-500 bg-gray-100 dark:bg-white/10 px-2 py-0.5 rounded-full border border-gray-200 dark:border-white/10">
+                                📊 Full History & Details
+                              </span>
+                            </div>
+
+                            {allPlayedMatches.length === 0 ? (
+                              <div className="p-8 text-center text-gray-500 bg-white dark:bg-[#181824] border border-dashed border-gray-300 dark:border-white/10 rounded-2xl space-y-2">
+                                <Trophy className="w-8 h-8 mx-auto text-amber-500/50 animate-pulse" />
+                                <p className="text-xs font-bold text-gray-800 dark:text-white">
+                                  {tPhone('আপনি এখনও কোনো ম্যাচ খেলেননি', 'No played matches recorded yet')}
+                                </p>
+                                <p className="text-[10px] text-gray-500 max-w-xs mx-auto">
+                                  {tPhone(
+                                    'হোম পেজ থেকে যেকোনো টুর্নামেন্টে অংশ নিন। ম্যাচ শেষ হলে আপনি কোন ম্যাচ খেলেছেন, কোন সময় খেলেছেন এবং তার রেজাল্ট ও বিস্তারিত এখানে দেখতে পাবেন।',
+                                    'Join tournaments from Home. After match finishes, details of which match you played, what time, and results will appear here.'
+                                  )}
+                                </p>
+                              </div>
+                            ) : (
+                              allPlayedMatches.map((pm: any) => {
+                                const liveMatch = matches.find((m) => m.id === pm.matchId || m.title === pm.title);
+                                const category = categories[pm.categorySlug || liveMatch?.categorySlug || ''] || null;
+                                const categoryName = category?.name || pm.categorySlug || 'Free Fire Match';
+                                const playTime = pm.time || liveMatch?.time || 'Tournament Scheduled Time';
+                                const matchMap = pm.map || liveMatch?.map || 'Bermuda';
+                                const matchType = pm.type || liveMatch?.type || '1 vs 1';
+                                const entryFee = pm.entryFee ?? liveMatch?.entryFee ?? 0;
+                                const prizePool = pm.prizePool ?? liveMatch?.prizePool ?? 0;
+
+                                // Check results for this player
+                                const results = liveMatch?.results || [];
+                                const userResult = results.find(
+                                  (r: any) =>
+                                    r.ign &&
+                                    ((pm.ign && r.ign.toUpperCase().trim() === pm.ign.toUpperCase().trim()) ||
+                                      (currentUser?.ign && r.ign.toUpperCase().trim() === currentUser.ign.toUpperCase().trim()))
+                                );
+
+                                return (
+                                  <div
+                                    key={pm.id}
+                                    className="p-4 rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#181824] space-y-3 shadow-md"
+                                  >
+                                    {/* Header: Title & Status */}
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded bg-red-100 dark:bg-red-950/60 text-red-600 uppercase inline-block mb-1">
+                                          {categoryName}
+                                        </span>
+                                        <h4 className="text-xs font-black text-gray-900 dark:text-white truncate">
+                                          {pm.title}
+                                        </h4>
+                                      </div>
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex-shrink-0">
+                                        COMPLETED
+                                      </span>
+                                    </div>
+
+                                    {/* Time & Game Details */}
+                                    <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-gray-50 dark:bg-black/30 border border-gray-200/60 dark:border-white/5 text-[11px]">
+                                      <div>
+                                        <span className="text-gray-400 block text-[9px] uppercase font-bold flex items-center gap-1">
+                                          <Clock className="w-2.5 h-2.5 text-amber-500" /> {tPhone('খেলার সময়', 'Play Time')}
+                                        </span>
+                                        <span className="font-extrabold text-gray-800 dark:text-gray-200">{playTime}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-gray-400 block text-[9px] uppercase font-bold">
+                                          {tPhone('মোড ও ম্যাপ', 'Mode & Map')}
+                                        </span>
+                                        <span className="font-bold text-gray-700 dark:text-gray-300">
+                                          {matchType} • {matchMap}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Player Participation Info */}
+                                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/70 dark:border-white/5 text-xs">
+                                      <div>
+                                        <span className="text-gray-400 block text-[9px] font-bold">
+                                          {tPhone('প্লেয়ার IGN', 'Player IGN')}
+                                        </span>
+                                        <span className="font-black text-gray-900 dark:text-white">{pm.ign || 'Player'}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-gray-400 block text-[9px] font-bold">
+                                          {tPhone('স্লট নম্বর', 'Slot #')}
+                                        </span>
+                                        <span className="font-black text-emerald-600 dark:text-emerald-400">#{pm.slot}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Fee & Prize summary */}
+                                    <div className="flex items-center justify-between text-[11px] px-1 font-semibold text-gray-500 dark:text-gray-400">
+                                      <span>{tPhone('এন্ট্রি ফি:', 'Entry Fee:')} <strong className="text-red-500">৳{entryFee}</strong></span>
+                                      <span>{tPhone('প্রাইজ পুল:', 'Prize Pool:')} <strong className="text-emerald-500">৳{prizePool}</strong></span>
+                                    </div>
+
+                                    {/* Result / Payout Status */}
+                                    {userResult ? (
+                                      <div className="p-2.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-amber-500/20 to-slate-900/30 border border-amber-500/40 flex items-center justify-between text-xs shadow-xs">
+                                        <div className="flex items-center gap-1.5">
+                                          <Trophy className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                          <div>
+                                            <span className="font-black text-amber-600 dark:text-amber-400 block leading-tight">
+                                              {userResult.rank === 1 ? '👑 ১ম স্থান (উইনার!)' : `${userResult.rank}ম স্থান`}
+                                            </span>
+                                            <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                                              {userResult.kills || 0} টি কিল
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="text-right">
+                                          <span className="text-[9px] text-gray-400 uppercase font-bold block">জিতেছেন</span>
+                                          <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                                            ৳{userResult.prize || 0}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : results.length > 0 ? (
+                                      <div className="p-2 rounded-xl bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-white/5 flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                                        <span className="flex items-center gap-1.5 font-bold">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                                          {tPhone('ম্যাচ খেলা সম্পন্ন হয়েছে', 'Match Participation Completed')}
+                                        </span>
+                                        <span className="text-[10px] text-gray-500 font-semibold">ফলাফল প্রকাশিত</span>
+                                      </div>
+                                    ) : (
+                                      <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/30 flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
+                                        <span className="flex items-center gap-1.5 font-bold">
+                                          <Clock className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                                          {tPhone('ম্যাচ সমাপ্ত • ফলাফল প্রক্রিয়াধীন', 'Match Finished • Result Pending')}
+                                        </span>
+                                        <span className="text-[10px] text-blue-500 font-semibold">অ্যাডমিন রিভিউ</span>
+                                      </div>
+                                    )}
+
+                                    {/* Details Modal Trigger */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedMatchForHistoryDetails({ ...liveMatch, ...pm })}
+                                      className="w-full py-2 rounded-xl bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/15 text-gray-800 dark:text-white font-black text-xs transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-amber-500" />
+                                      <span>{tPhone('ম্যাচ ডিটেইলস ও ফলাফল দেখুন', 'View Match Details & Scorecard')}</span>
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -2363,11 +3048,11 @@ export default function MobileAppViewPage(props: any) {
                         <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-100 space-y-2.5 my-3 shadow-xs">
                           <Trophy className="w-12 h-12 text-amber-500/40 mx-auto animate-pulse" />
                           <h4 className="text-sm font-black text-slate-800">
-                            {tPhone('à¦²à¦¿à¦¡à¦¾à¦°à¦¬à§‹à¦°à§à¦¡ à¦à¦–à¦¨à¦“ à¦¶à§à¦°à§ à¦¹à§Ÿà¦¨à¦¿', 'Leaderboard Not Live Yet')}
+                            {tPhone('লিডারবোর্ড এখনো উন্মুক্ত হয়নি', 'Leaderboard Not Live Yet')}
                           </h4>
                           <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed">
                             {tPhone(
-                              'à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿà§‡à¦° à¦²à¦¾à¦‡à¦­ à¦®à§à¦¯à¦¾à¦š à¦¶à§à¦°à§ à¦¹à¦²à§‡ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à¦¦à§‡à¦° à¦•à¦¿à¦² à¦“ à¦…à¦°à§à¦œà¦¿à¦¤ à¦°â€à§à¦¯à¦¾à¦™à§à¦• à¦¸à§à¦¬à§Ÿà¦‚à¦•à§à¦°à¦¿à§Ÿà¦­à¦¾à¦¬à§‡ à¦à¦–à¦¾à¦¨à§‡ à¦¯à§à¦•à§à¦¤ à¦¹à¦¬à§‡à¥¤',
+                              'টুর্নামেন্টের অফিসিয়াল লাইভ ম্যাচ শুরু হওয়ার পর বিজয়ী ও সেরা প্লেয়ারদের কিল, র‍্যাংক ও প্রাইজমানি স্বয়ংক্রিয়ভাবে এখানে প্রদর্শিত হবে।',
                               'Player kills, wins, and ranks will automatically appear here once live tournament matches begin.'
                             )}
                           </p>
@@ -2390,34 +3075,21 @@ export default function MobileAppViewPage(props: any) {
                             <div>
                               <h3 className="text-sm font-black">{topPlayers[0].ign}</h3>
                               <p className="text-[10px] text-amber-200">
-                                {topPlayers[0].booyahs} Booyahs • Win Rate: {topPlayers[0].winRate}
+                                {tPhone('ভেরিফায়েড অফিসিয়াল প্লেয়ার', 'Verified Esports Player')}
                               </p>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-1.5 pt-1 text-center bg-black/30 rounded-xl p-1.5 text-[10px]">
+                          <div className="grid grid-cols-2 gap-2 pt-1 text-center bg-black/30 rounded-xl p-2 text-xs">
                             <div>
-                              <span className="text-gray-300 block text-[9px]">{tPhone('মোট কিল', 'Total Kills')}</span>
-                              <span className="font-black text-red-400">{topPlayers[0].kills} Kills</span>
+                              <span className="text-gray-300 block text-[9px] uppercase font-bold">{tPhone('ম্যাচ প্লেড', 'Matches Played')}</span>
+                              <span className="font-black text-amber-300 text-sm">{topPlayers[0].matchesPlayed}</span>
                             </div>
                             <div>
-                              <span className="text-gray-300 block text-[9px]">{tPhone('মোট আয়', 'Total Won')}</span>
-                              <span className="font-black text-emerald-400">৳{topPlayers[0].earnings}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-300 block text-[9px]">{tPhone('ম্যাচ খেলা', 'Matches')}</span>
-                              <span className="font-black text-amber-300">{topPlayers[0].matchesPlayed}</span>
+                              <span className="text-gray-300 block text-[9px] uppercase font-bold">{tPhone('উইনিং', 'Winnings')}</span>
+                              <span className="font-black text-emerald-400 text-sm">৳{topPlayers[0].earnings.toLocaleString()}</span>
                             </div>
                           </div>
-
-                          {/* ACTION BUTTON: VIEW PLAYER DETAILS */}
-                          <button
-                            onClick={() => setSelectedPlayerForDetails(topPlayers[0])}
-                            className="w-full py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-black font-black text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>{tPhone('প্লেয়ার ডিটেইলস দেখুন', 'View Full Player Details')}</span>
-                          </button>
                         </div>
                       )}
 
@@ -2460,24 +3132,14 @@ export default function MobileAppViewPage(props: any) {
                               </div>
                             </div>
 
-                            {/* Stats Columns & Details Trigger */}
-                            <div className="flex items-center gap-2">
-                              <div className="text-right">
-                                <div className="text-xs font-black text-emerald-500">
-                                  ৳{p.earnings.toLocaleString()}
-                                </div>
-                                <div className="text-[9px] text-gray-400">
-                                  <span className="text-red-500 font-bold">{p.kills} K</span> • {p.matchesPlayed} M
-                                </div>
+                            {/* Stats Columns: Winnings & Matches Played Only */}
+                            <div className="text-right">
+                              <div className="text-xs font-black text-emerald-500">
+                                ৳{p.earnings.toLocaleString()}
                               </div>
-
-                              <button
-                                onClick={() => setSelectedPlayerForDetails(p)}
-                                className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:bg-amber-500 hover:text-black transition-all"
-                                title={tPhone('প্লেয়ার ডিটেইলস', 'Player Details')}
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="text-[9px] text-gray-400 font-bold">
+                                {p.matchesPlayed} {tPhone('ম্যাচ প্লেড', 'Matches')}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -2506,7 +3168,7 @@ export default function MobileAppViewPage(props: any) {
                           <span>{tPhone('ম্যাচ বোনাস: ৳', 'Bonus: ৳')} {(userBalance * 0.15).toFixed(2)}</span>
                         </div>
 
-                        {/* Direct Withdraw & Deposit Buttons inside Wallet */}
+                        {/* Direct Withdraw & Deposit Buttons inside Wallet - Navigates to dedicated fresh pages */}
                         <div className="grid grid-cols-2 gap-2 pt-2">
                           <button
                             onClick={() => {
@@ -2514,8 +3176,7 @@ export default function MobileAppViewPage(props: any) {
                                 setShowAuthModal(true);
                                 return;
                               }
-                              setFinanceModalTab('WITHDRAW');
-                              setShowFinanceModal(true);
+                              window.location.href = '/withdraw';
                             }}
                             className="py-2.5 px-3 rounded-xl bg-white text-gray-900 hover:bg-gray-100 font-black text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all"
                           >
@@ -2529,13 +3190,27 @@ export default function MobileAppViewPage(props: any) {
                                 setShowAuthModal(true);
                                 return;
                               }
-                              setFinanceModalTab('DEPOSIT');
-                              setShowFinanceModal(true);
+                              window.location.href = '/deposit';
                             }}
                             className="py-2.5 px-3 rounded-xl bg-black/40 hover:bg-black/60 text-white font-black text-xs flex items-center justify-center gap-1.5 border border-white/30 active:scale-95 transition-all"
                           >
                             <ArrowDownRight className="w-4 h-4 text-amber-400" />
                             <span>{tPhone('ডিপোজিট (টাকা যোগ)', 'Add Money')}</span>
+                          </button>
+                        </div>
+
+                        {/* View My History Button inside Wallet */}
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryInitialTab('ADD_MONEY');
+                              setShowMyHistory(true);
+                            }}
+                            className="w-full py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-black text-[11px] flex items-center justify-center gap-1.5 border border-white/20 active:scale-95 transition-all"
+                          >
+                            <HistoryIcon className="w-3.5 h-3.5 text-amber-300" />
+                            <span>{tPhone('📜 লেনদেন ও ম্যাচ হিস্ট্রি দেখুন (My History)', '📜 View My History')}</span>
                           </button>
                         </div>
                       </div>
@@ -2672,6 +3347,37 @@ export default function MobileAppViewPage(props: any) {
                         </div>
                       ) : (
                         <>
+                          {/* PAYBOT DEDICATED CONNECTOR CARD - STRICTLY ONLY for Owner / Admin IDs */}
+                          {isOwnerUser && (
+                            <div
+                              onClick={() => setShowPayBotModal(true)}
+                              className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-slate-900 border border-emerald-500/50 p-4 rounded-3xl text-white shadow-lg shadow-emerald-950/30 flex items-center justify-between gap-3 cursor-pointer active:scale-98 transition-all"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/40">
+                                  <Zap className="w-5 h-5 animate-pulse" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-xs font-black text-white">⚡ PayBot অটো-কালেক্টর</h4>
+                                    <span className="text-[9px] font-black bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full">
+                                      {isPaybotConnected ? 'ONLINE' : 'OFFLINE'}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">
+                                    বিকাশ ও নগদ অটো-ডিপোজিট রিসিভ করতে ফোনে এক্সেস দিন
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[11px] font-black shadow-sm flex items-center gap-1"
+                              >
+                                কানেক্ট &rarr;
+                              </button>
+                            </div>
+                          )}
+
                           {/* 1. PROFILE CARD (EXACT USER SCREENSHOT) */}
                           <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
                             {/* Blue-Violet Top Banner */}
@@ -2751,34 +3457,44 @@ export default function MobileAppViewPage(props: any) {
                             </div>
                           </div>
 
-                          {/* 2. 3-COLUMN STATS GRID (EXACT SCREENSHOT: 0 MATCHES, 0 WINS, 0 BDT) */}
-                          <div className="grid grid-cols-3 gap-2.5">
+                          {/* 2. 4-COLUMN STATS GRID: MATCHES, KILLS, WINS, BDT BALANCE */}
+                          <div className="grid grid-cols-4 gap-2">
                             {/* MATCHES */}
-                            <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 text-center shadow-xs">
-                              <span className="text-2xl font-black text-[#5850ec] block">
+                            <div className="bg-white rounded-2xl border border-slate-200/80 p-2.5 text-center shadow-xs">
+                              <span className="text-xl font-black text-[#5850ec] block">
                                 {currentUser?.matchesPlayed || 0}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
                                 {tPhone('ম্যাচ', 'MATCHES')}
                               </span>
                             </div>
 
+                            {/* KILLS */}
+                            <div className="bg-white rounded-2xl border border-slate-200/80 p-2.5 text-center shadow-xs">
+                              <span className="text-xl font-black text-red-500 block">
+                                {currentUser?.totalKills || 0}
+                              </span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
+                                {tPhone('কিল', 'KILLS')}
+                              </span>
+                            </div>
+
                             {/* WINS */}
-                            <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 text-center shadow-xs">
-                              <span className="text-2xl font-black text-[#5850ec] block">
+                            <div className="bg-white rounded-2xl border border-slate-200/80 p-2.5 text-center shadow-xs">
+                              <span className="text-xl font-black text-amber-500 block">
                                 {currentUser?.totalWins || 0}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
                                 {tPhone('জয়', 'WINS')}
                               </span>
                             </div>
 
                             {/* BDT */}
-                            <div className="bg-white rounded-2xl border border-slate-200/80 p-3.5 text-center shadow-xs">
-                              <span className="text-2xl font-black text-[#5850ec] block">
+                            <div className="bg-white rounded-2xl border border-slate-200/80 p-2.5 text-center shadow-xs">
+                              <span className="text-xl font-black text-emerald-600 block">
                                 {Math.floor(userBalance || 0)}
                               </span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
                                 BDT
                               </span>
                             </div>
@@ -2786,6 +3502,26 @@ export default function MobileAppViewPage(props: any) {
 
                           {/* 3. MENU ITEMS LIST (EXACT SCREENSHOT WITH COLORFUL SQUARE ICONS) */}
                           <div className="space-y-2">
+                            {/* 0. My History (User Requested) */}
+                            <div
+                              onClick={() => {
+                                setHistoryInitialTab('ADD_MONEY');
+                                setShowMyHistory(true);
+                              }}
+                              className="bg-white rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-white p-3 flex items-center justify-between shadow-xs hover:border-amber-400 transition-all cursor-pointer active:scale-[0.99]"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-[#fef9c3] text-[#ca8a04] flex items-center justify-center border border-amber-200 shadow-2xs">
+                                  <HistoryIcon className="w-5 h-5 text-[#ca8a04]" />
+                                </div>
+                                <div>
+                                  <span className="font-black text-slate-900 text-sm block">{tPhone('মাই হিস্ট্রি', 'My History')}</span>
+                                  <span className="text-[10px] text-slate-500 font-bold block">{tPhone('অ্যাড মানি, ম্যাচ এন্ট্রি ও উইথড্র হিস্ট্রি', 'Add Money, Entry & Withdraw')}</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-amber-500" />
+                            </div>
+
                             {/* 1. Rules */}
                             <div
                               onClick={() => setShowRulesModal(true)}
@@ -2810,6 +3546,28 @@ export default function MobileAppViewPage(props: any) {
                                   <Crown className="w-5 h-5 text-[#f59e0b]" />
                                 </div>
                                 <span className="font-bold text-slate-800 text-sm">{tPhone('শীর্ষ খেলোয়াড়', 'Top Players')}</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            </div>
+
+                            {/* 2.5. Anti-Cheat Report */}
+                            <div
+                              onClick={() => {
+                                setSuspectIgn('');
+                                setCheatProof('');
+                                setCheatReportSent(false);
+                                setShowAntiCheatModal(true);
+                              }}
+                              className="bg-white rounded-2xl border border-rose-200/90 p-3 flex items-center justify-between shadow-xs hover:border-rose-400 transition-all cursor-pointer active:scale-[0.99]"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                                  <ShieldAlert className="w-5 h-5 text-rose-600" />
+                                </div>
+                                <div>
+                                  <span className="font-bold text-slate-900 text-sm">{tPhone('অ্যান্টি-চিট প্লেয়ার রিপোর্ট', 'Anti-Cheat Cheater Report')}</span>
+                                  <p className="text-[10px] text-rose-600 font-bold">{tPhone('চিটারদের IGN ও প্রুফ সাবমিট করুন', 'Submit IGN & video proof')}</p>
+                                </div>
                               </div>
                               <ChevronRight className="w-4 h-4 text-slate-400" />
                             </div>
@@ -3091,6 +3849,136 @@ export default function MobileAppViewPage(props: any) {
           language={phoneLang}
           onClose={() => setSelectedPlayerForDetails(null)}
         />
+      )}
+
+      {/* 3.1. PLAYED MATCH & SCORECARD DETAILS MODAL */}
+      {selectedMatchForHistoryDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-sm rounded-3xl bg-white dark:bg-[#12121a] border border-gray-200 dark:border-white/10 shadow-2xl overflow-hidden p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200 dark:border-white/10">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-500" />
+                <h3 className="text-sm font-black text-gray-900 dark:text-white">
+                  {tPhone('ম্যাচ ও রেজাল্ট ডিটেইলস', 'Match & Result Details')}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMatchForHistoryDetails(null)}
+                className="w-7 h-7 rounded-full bg-gray-100 dark:bg-white/10 flex items-center justify-center text-gray-500 hover:text-gray-900 text-xs font-black"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded bg-red-100 dark:bg-red-950/60 text-red-600 uppercase inline-block mb-1">
+                  {categories[selectedMatchForHistoryDetails.categorySlug]?.name || selectedMatchForHistoryDetails.categorySlug || 'Free Fire'}
+                </span>
+                <h4 className="text-sm font-black text-gray-900 dark:text-white">
+                  {selectedMatchForHistoryDetails.title}
+                </h4>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-gray-50 dark:bg-black/40 border border-gray-200 dark:border-white/5 text-[11px]">
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">ম্যাচ খেলার সময়</span>
+                  <span className="font-extrabold text-gray-800 dark:text-gray-200">{selectedMatchForHistoryDetails.time}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">ম্যাপ ও মোড</span>
+                  <span className="font-bold text-gray-700 dark:text-gray-300">
+                    {selectedMatchForHistoryDetails.type || '1 vs 1'} • {selectedMatchForHistoryDetails.map || 'Bermuda'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">আপনার স্লট</span>
+                  <span className="font-black text-emerald-600">#{selectedMatchForHistoryDetails.slot}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">আপনার IGN</span>
+                  <span className="font-black text-gray-900 dark:text-white">{selectedMatchForHistoryDetails.ign}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5 text-[11px]">
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">এন্ট্রি ফি</span>
+                  <span className="font-black text-red-600">৳{selectedMatchForHistoryDetails.entryFee || 0}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 block text-[9px] font-bold">টোটাল প্রাইজ পুল</span>
+                  <span className="font-black text-emerald-600">৳{selectedMatchForHistoryDetails.prizePool || 0}</span>
+                </div>
+              </div>
+
+              {/* Scoreboard Results */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                  <Award className="w-3.5 h-3.5 text-amber-500" />
+                  {tPhone('ফলাফল ও স্কোরবোর্ড (Scoreboard)', 'Match Scoreboard')}
+                </span>
+
+                {Array.isArray(selectedMatchForHistoryDetails.results) && selectedMatchForHistoryDetails.results.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {selectedMatchForHistoryDetails.results.map((r: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className={`p-2 rounded-xl border flex items-center justify-between text-xs ${
+                          r.rank === 1
+                            ? 'bg-amber-500/10 border-amber-500/30'
+                            : 'bg-gray-50 dark:bg-white/[0.02] border-gray-200 dark:border-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-5 h-5 rounded-full inline-flex items-center justify-center text-[10px] font-black ${
+                              r.rank === 1
+                                ? 'bg-amber-400 text-black'
+                                : r.rank === 2
+                                ? 'bg-slate-300 text-black'
+                                : 'bg-amber-700/60 text-white'
+                            }`}
+                          >
+                            {r.rank}
+                          </span>
+                          <span className="font-black text-gray-900 dark:text-white">{r.ign}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-red-500 font-bold text-[11px]">{r.kills || 0} কিল</span>
+                          <span className="font-black text-emerald-600 text-xs">৳{r.prize || 0}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-white/5 text-center text-[11px] text-gray-500">
+                    ম্যাচটি সম্পন্ন হয়েছে। অ্যাডমিন শীঘ্রই অফিসিয়াল ফলাফল পাবলিশ করবেন।
+                  </div>
+                )}
+              </div>
+
+              {/* Rules info */}
+              {selectedMatchForHistoryDetails.rules && (
+                <div className="p-2.5 rounded-xl bg-gray-50 dark:bg-black/30 border border-gray-200 dark:border-white/5 space-y-1">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase block">ম্যাচের নিয়মাবলী</span>
+                  <p className="text-[11px] text-gray-600 dark:text-gray-300 whitespace-pre-line leading-relaxed">
+                    {selectedMatchForHistoryDetails.rules}
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSelectedMatchForHistoryDetails(null)}
+                className="w-full py-2.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-black font-black text-xs transition-all shadow-md active:scale-95"
+              >
+                বন্ধ করুন (Close)
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 4. TOTAL PRIZE DETAILS MODAL (EXACT USER IMAGE 2) */}
@@ -3704,6 +4592,17 @@ export default function MobileAppViewPage(props: any) {
         </div>
       )}
 
+      
+      {/* 9.9. MY HISTORY FULL-SCREEN VIEW (USER REQUESTED) */}
+      {showMyHistory && (
+        <div className="fixed inset-0 z-50 bg-[#faf5ff] overflow-y-auto no-scrollbar animate-fadeIn">
+          <MyHistoryComponent
+            initialTab={historyInitialTab}
+            onBack={() => setShowMyHistory(false)}
+          />
+        </div>
+      )}
+
       {/* 9. RULES MODAL */}
       {showRulesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
@@ -3730,9 +4629,21 @@ export default function MobileAppViewPage(props: any) {
                 <p>ম্যাচ শুরুর ১০-১৫ মিনিট আগে অ্যাপের &quot;আমার ম্যাচ&quot; (My Matches) অপশনে রুম আইডি এবং পাসওয়ার্ড দেয়া হবে। নিজের নির্দিষ্ট স্লটেই বসতে হবে।</p>
               </div>
 
-              <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-100">
+              <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-100 space-y-2">
                 <h4 className="font-bold text-rose-900 mb-1">🛡️ অ্যান্টি-চিট ও ফেয়ার প্লে</h4>
                 <p>যেকোনো ধরনের হ্যাক, স্ক্রিপ্ট, কনফিগ ফাইল বা এম্যুলেটর ব্যবহার সম্পূর্ণ নিষিদ্ধ। ধরা পড়লে অ্যাকাউন্ট আজীবনের জন্য ব্যান হবে।</p>
+                <div className="pt-2 border-t border-rose-200/60 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-rose-800">অফিসিয়াল টেলিগ্রাম চ্যানেল:</span>
+                  <a
+                    href="https://t.me/ffrivalstourbdofficial"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] inline-flex items-center gap-1 shadow-xs transition-colors"
+                  >
+                    <span>Telegram</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100">
@@ -3748,6 +4659,155 @@ export default function MobileAppViewPage(props: any) {
             >
               {tPhone('বুঝেছি (Close)', 'I Understand')}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 9.5. ANTI-CHEAT REPORT MODAL */}
+      {showAntiCheatModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="w-full max-w-md rounded-3xl bg-white border border-rose-200 p-6 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto text-slate-900">
+            <div className="flex items-center justify-between pb-2 border-b border-rose-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <ShieldAlert className="w-4 h-4 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">
+                    {tPhone('🛡️ অ্যান্টি-চিট প্লেয়ার রিপোর্ট', '🛡️ Anti-Cheat Cheater Report')}
+                  </h3>
+                  <p className="text-[10px] text-slate-500">
+                    {tPhone('চিটারের ইন-গেম নাম ও প্রুফ সাবমিট করুন', 'Submit suspect IGN & proof')}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAntiCheatModal(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            {cheatReportSent ? (
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-center space-y-3">
+                <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-600" />
+                <div>
+                  <h4 className="font-black text-sm">রিপোর্ট সফলভাবে জমা হয়েছে!</h4>
+                  <p className="text-xs text-emerald-700 mt-1">
+                    অভিযুক্ত প্লেয়ারের নাম <strong>{suspectIgn}</strong> অ্যান্টি-চিট সুপারভাইজার ও এআই সেন্টিনেলে রিভিউয়ের জন্য পাঠানো হয়েছে।
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAntiCheatModal(false)}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs"
+                >
+                  ঠিক আছে
+                </button>
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!suspectIgn.trim()) return;
+                  try {
+                    createSupportTicket({
+                      userId: currentUser?.id || 'u-guest',
+                      userPhone: currentUser?.phone || '01700000000',
+                      userIgn: currentUser?.ign || 'Player',
+                      subject: `[অ্যান্টি-চিট রিপোর্ট] ${suspectIgn.trim()}`,
+                      category: 'OTHER',
+                      message: `অভিযুক্ত প্লেয়ারের নাম (IGN): ${suspectIgn.trim()}\nপ্রমাণ ও বিবরণ: ${cheatProof.trim() || 'ভিডিও/স্ক্রিনশট প্রুফ পর্যালোচনা অনুরোধ'}`,
+                    });
+                  } catch {}
+                  setCheatReportSent(true);
+                }}
+                className="space-y-3.5 text-xs"
+              >
+                {/* Telegram Official Channel Banner */}
+                <div className="p-3 rounded-2xl bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-sky-900 text-xs flex items-center gap-1.5">
+                      <span>📢 অফিসিয়াল টেলিগ্রাম চ্যানেল:</span>
+                    </span>
+                    <a
+                      href="https://t.me/ffrivalstourbdofficial"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-black text-[11px] inline-flex items-center gap-1 shadow-xs transition-colors"
+                    >
+                      <span>Join Telegram</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <p className="text-[11px] text-sky-800 leading-relaxed">
+                    📹 গেমপ্লে ভিডিও প্রুফ থাকলে সরাসরি আমাদের টেলিগ্রাম চ্যানেলে পাঠাতে পারেন।
+                  </p>
+                </div>
+
+                {/* Input: Suspect Player IGN */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800">
+                      অভিযুক্ত প্লেয়ারের গেম আইডির নাম (IGN):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await readClipboardText();
+                          if (text && text.trim()) setSuspectIgn(text.trim());
+                        } catch {}
+                      }}
+                      className="text-[10px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-lg border border-rose-200"
+                    >
+                      <Copy className="w-2.5 h-2.5" />
+                      <span>পেস্ট করুন</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={suspectIgn}
+                    onChange={(e) => setSuspectIgn(e.target.value)}
+                    placeholder="যেমন: Hacker_OP_44"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-slate-900 focus:outline-none focus:border-rose-500 shadow-xs"
+                  />
+                </div>
+
+                {/* Input: Proof description / link */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-800">
+                    প্রুফ / প্রমাণের বিবরণ ও ভিডিও লিঙ্ক (Proof):
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={cheatProof}
+                    onChange={(e) => setCheatProof(e.target.value)}
+                    placeholder="কোন ম্যাচে হ্যাক করেছিল বা Google Drive / YouTube ভিডিও লিঙ্ক দিন..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-medium text-slate-900 focus:outline-none focus:border-rose-500 shadow-xs leading-relaxed"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAntiCheatModal(false)}
+                    className="w-1/3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
+                  >
+                    বাতিল
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-2/3 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black shadow-md shadow-rose-600/30 transition-all active:scale-95"
+                  >
+                    রিপোর্ট সাবমিট করুন
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -3771,13 +4831,13 @@ export default function MobileAppViewPage(props: any) {
             <div className="space-y-1">
               <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-black uppercase tracking-wider mb-1">
                 <ShieldAlert className="w-3 h-3 text-red-400" />
-                অফিসিয়াল Android অ্যাপ
+                অফিসিয়াল Android অ্যাপ আপডেট
               </div>
               <h3 className="text-xl font-black tracking-wide text-white">
-                FF RIVALS অ্যাপ ডাউনলোড করুন! 🚀
+                নতুন আপডেট v5.0.0 উপলব্ধ! 🚀
               </h3>
               <p className="text-xs text-gray-300 leading-relaxed pt-1">
-                সুপারফাস্ট টুর্নামেন্ট অভিজ্ঞতা ও নোটিফিকেশন পেতে আমাদের <span className="text-amber-400 font-bold">৩০ MB</span> অফিশিয়াল অ্যাপটি ফোনে ইনস্টল করুন।
+                সুপারফাস্ট টুর্নামেন্ট অভিজ্ঞতা, ম্যাচ রুম আইডি ও পুশ নোটিফিকেশন পেতে আমাদের <span className="text-amber-400 font-bold">৩০ MB</span> অফিশিয়াল অ্যাপের লেটেস্ট ভার্সন ইনস্টল করুন।
               </p>
             </div>
 
@@ -3787,7 +4847,7 @@ export default function MobileAppViewPage(props: any) {
                 📦 সাইজ: ৩০ এমবি (30 MB)
               </span>
               <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                ⚡ ভার্সন: v3.5.0 Latest
+                ⚡ ভার্সন: v5.0.0 Latest
               </span>
             </div>
 
@@ -3894,7 +4954,9 @@ export default function MobileAppViewPage(props: any) {
                     type="button"
                     onClick={() => {
                       try {
-                        localStorage.setItem('ff_app_installed_version_v350', 'v3.5.0');
+                        localStorage.setItem('ff_app_installed_version_v500', 'v5.0.0');
+                        localStorage.setItem('ff_app_update_dismissed_permanent', 'true');
+                        sessionStorage.setItem('ff_update_dismissed_session', 'true');
                       } catch {}
                       setShowUpdateModal(false);
                     }}
@@ -3931,7 +4993,9 @@ export default function MobileAppViewPage(props: any) {
                 type="button"
                 onClick={() => {
                   try {
-                    localStorage.setItem('ff_app_installed_version_v350', 'v3.5.0');
+                    localStorage.setItem('ff_app_installed_version_v500', 'v5.0.0');
+                    localStorage.setItem('ff_app_update_dismissed_permanent', 'true');
+                    sessionStorage.setItem('ff_update_dismissed_session', 'true');
                   } catch {}
                   setShowUpdateModal(false);
                 }}
@@ -3939,6 +5003,142 @@ export default function MobileAppViewPage(props: any) {
               >
                 পরে আপডেট করব / সরাসরি অ্যাপে প্রবেশ করুন (Skip)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 12. PAYBOT CONNECT IN-APP MODAL - STRICTLY ONLY for Owner / Admin IDs */}
+      {showPayBotModal && isOwnerUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-sm rounded-3xl bg-slate-950 border border-emerald-500/40 p-5 shadow-2xl space-y-4 text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <Zap className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">PayBot অটো-কালেক্টর</h3>
+                  <p className="text-[10px] text-slate-400">{currentUser?.ign || 'PAYBOT_DEVICE'} ({currentUser?.phone})</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPayBotModal(false)}
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <div className={`w-3 h-3 rounded-full ${isPaybotConnected ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'}`} />
+                <span className={`text-xs font-black uppercase ${isPaybotConnected ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {isPaybotConnected ? 'ডিভাইস অনলাইন ও সিঙ্কড ✅' : 'ডিভাইস অফলাইন'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                {isPaybotConnected
+                  ? 'আপনার ফোন সার্ভারের সাথে সর্বদা সক্রিয় (Always Connected 24/7) আছে। গেম খেললেও বা অ্যাপ কেটে দিলেও ব্যাকগ্রাউন্ডে অলওয়েজ কানেক্টেড থাকবে। বিকাশ ও নগদে টাকা আসা মাত্রই সাথে সাথে প্লেয়ারের ব্যালেন্সে জমা হবে।'
+                  : 'নিচের বাটনে চাপ দিয়ে ফোনে এক্সেস কানেক্ট করুন। একবার কানেক্ট করলে অ্যাপ কেটে দিলেও সর্বদা কানেক্টেড থাকবে। কোনো এসএমএস ফরওয়ার্ডার লাগবে না।'}
+              </p>
+              {isPaybotConnected && (
+                <div className="pt-1 text-[10px] text-emerald-400 font-bold bg-emerald-500/10 py-1 px-2 rounded-lg border border-emerald-500/20">
+                  🛡️ অ্যাপ আনইনস্টল না করা পর্যন্ত সর্বদা ব্যাকগ্রাউন্ডে রানিং থাকবে
+                </div>
+              )}
+            </div>
+
+            {(!currentUser || (!currentUser.id?.startsWith('u-paybot') && !currentUser.phone?.startsWith('0179900000') && currentUser.role !== 'ADMIN')) && (
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-300 text-left">
+                  কালেক্টর ডিভাইস আইডি সিলেক্ট করুন:
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { phone: '01799000001', label: 'ডিভাইস ১' },
+                    { phone: '01799000002', label: 'ডিভাইস ২' },
+                    { phone: '01799000003', label: 'ডিভাইস ৩' },
+                    { phone: '01799000004', label: 'ডিভাইস ৪' },
+                  ].map((d) => (
+                    <button
+                      key={d.phone}
+                      type="button"
+                      onClick={() => setSelectedPaybotPhone(d.phone)}
+                      className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        selectedPaybotPhone === d.phone
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-xs'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="text-[10px] font-black">{d.phone}</div>
+                      <div className="text-[9px] text-slate-500">{d.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              {isPaybotConnected ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handlePaybotDisconnect();
+                  }}
+                  className="w-full py-3 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-black"
+                >
+                  ডিসকানেক্ট করুন
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handlePaybotConnect}
+                  disabled={isPaybotConnecting}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
+                >
+                  {isPaybotConnecting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                      এক্সেস কানেক্ট হচ্ছে...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 fill-slate-950 text-slate-950" />
+                      ফোনে এক্সেস দিয়ে কানেক্ট করুন
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {isPaybotConnected && (
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-[11px] space-y-1">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span>লাস্ট পিং (Heartbeat):</span>
+                  <span className="font-mono text-emerald-400 font-bold">{paybotLastPing || 'সক্রিয়'}</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-400">
+                  <span>সার্ভার স্ট্যাটাস:</span>
+                  <span className="text-teal-300 font-bold">1s Realtime Auto-Credit</span>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-1 flex items-center justify-between text-[11px]">
+              <a
+                href="/paybot-connect"
+                className="text-emerald-400 hover:underline font-bold"
+              >
+                ফুল স্ক্রিন মোডে খুলুন &rarr;
+              </a>
+              <a
+                href="/owner-gateway"
+                className="text-slate-400 hover:underline font-bold"
+              >
+                ওনার গেটওয়ে
+              </a>
             </div>
           </div>
         </div>

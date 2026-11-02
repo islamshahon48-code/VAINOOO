@@ -16,6 +16,7 @@ import {
   Download,
   Smartphone,
   Headphones,
+  Clock,
 } from 'lucide-react';
 import { ApiClient } from '@/lib/api-client';
 import { useTheme } from '@/components/ThemeProvider';
@@ -100,7 +101,7 @@ export default function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 backdrop-blur-md bg-white/95 dark:bg-[#07070a]/90 border-b border-gray-200 dark:border-white/10 transition-colors">
+    <header className="hidden lg:block sticky top-0 z-50 backdrop-blur-md bg-white/95 dark:bg-[#07070a]/90 border-b border-gray-200 dark:border-white/10 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
         {/* Brand Logo with User-uploaded Logo */}
         <Link href="/" onClick={handleSecretLogoClick} className="flex items-center gap-3 group select-none flex-shrink-0">
@@ -121,13 +122,20 @@ export default function Navbar() {
           </div>
         </Link>
 
-        {/* Clean Nav Links (Home, Leaderboard, Deposit & Withdraw) */}
+        {/* Clean Nav Links (Home, My Matches, Leaderboard, Deposit & Withdraw) */}
         <nav className="hidden md:flex items-center gap-2.5 text-xs font-bold uppercase tracking-wider">
           <Link
             href="/"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-gray-700 dark:text-gray-300 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-white/5 transition-all"
           >
             <Home className="w-4 h-4" /> {t('হোম', 'Home')}
+          </Link>
+
+          <Link
+            href="/mobile-app-view?tab=my-matches"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-gray-700 dark:text-gray-300 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-white/5 transition-all font-bold"
+          >
+            <Clock className="w-4 h-4 text-red-600" /> {t('মাই ম্যাচ', 'My Matches')}
           </Link>
 
           <Link
@@ -214,6 +222,17 @@ export default function Navbar() {
           {/* Profile Button */}
           {user ? (
             <div className="flex items-center gap-2">
+              {(user.role === 'ADMIN' ||
+                user.id?.startsWith('u-paybot') ||
+                user.phone?.startsWith('0179900000')) && (
+                <Link
+                  href="/paybot-connect"
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black transition-all flex items-center gap-1 shadow-sm border border-emerald-400/30"
+                  title="PayBot Mobile Connector"
+                >
+                  ⚡ <span className="hidden sm:inline">PayBot কানেক্ট</span>
+                </Link>
+              )}
               {user.role === 'ADMIN' && (
                 <Link
                   href="/admin"

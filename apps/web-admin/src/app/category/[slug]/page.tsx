@@ -72,51 +72,43 @@ export default function CategoryDetailPage() {
     [allCategoryMatches]
   );
 
-  const [matchTypeFilter, setMatchTypeFilter] = useState<'SOLO' | 'DUO' | 'SQUAD'>('SOLO');
+  const [matchTypeFilter, setMatchTypeFilter] = useState<'ALL' | 'SOLO' | 'DUO' | 'SQUAD'>('ALL');
   const [activeTab, setActiveTab] = useState<'PLAY' | 'RESULT'>('PLAY');
 
   const filteredCategoryMatches = React.useMemo(() => {
     return categoryMatches.filter((m) => {
       const typeStr = (m.type || m.matchType || '').toUpperCase();
       const titleStr = (m.title || '').toUpperCase();
-      const is1v1OrSolo =
-        typeStr === 'SOLO' ||
-        typeStr === '1 VS 1' ||
-        typeStr === '1V1' ||
-        typeStr.includes('1 VS 1') ||
-        typeStr.includes('1V1') ||
-        titleStr.includes('1V1') ||
-        titleStr.includes('1 VS 1') ||
-        typeStr.includes('SOLO') ||
-        titleStr.includes('SOLO') ||
-        titleStr.includes('সোলো') ||
-        (m.totalSlots <= 2 && !typeStr.includes('DUO') && !titleStr.includes('DUO') && !typeStr.includes('2 VS 2') && !typeStr.includes('2V2'));
-
       const isDuoMatch =
-        !is1v1OrSolo &&
-        (typeStr === 'DUO' ||
-          typeStr.includes('DUO') ||
-          titleStr.includes('DUO') ||
-          titleStr.includes('ডুও') ||
-          typeStr.includes('2 VS 2') ||
-          typeStr.includes('2V2') ||
-          titleStr.includes('2V2') ||
-          titleStr.includes('2 VS 2') ||
-          m.totalSlots === 4 ||
-          (m.totalSlots === 24 && !typeStr.includes('SQUAD')));
+        m.totalSlots === 4 ||
+        typeStr === 'DUO' ||
+        typeStr === '2 VS 2' ||
+        typeStr === '2V2' ||
+        typeStr.includes('2 VS 2') ||
+        typeStr.includes('2V2') ||
+        typeStr.includes('DUO') ||
+        titleStr.includes('DUO') ||
+        titleStr.includes('ডুও') ||
+        titleStr.includes('2V2') ||
+        titleStr.includes('2 VS 2') ||
+        (m.totalSlots === 24 && !typeStr.includes('SQUAD'));
 
       const isSquadMatch =
-        typeStr === 'SQUAD' ||
-        typeStr.includes('SQUAD') ||
-        titleStr.includes('SQUAD') ||
-        titleStr.includes('স্কোয়াড') ||
-        typeStr.includes('4V4') ||
-        typeStr.includes('4 VS 4') ||
-        titleStr.includes('4V4') ||
-        titleStr.includes('4 VS 4') ||
-        m.totalSlots === 8 ||
-        (m.totalSlots === 48 && !is1v1OrSolo && !isDuoMatch);
+        !isDuoMatch &&
+        (m.totalSlots === 8 ||
+          m.totalSlots === 48 ||
+          typeStr === 'SQUAD' ||
+          typeStr.includes('SQUAD') ||
+          titleStr.includes('SQUAD') ||
+          titleStr.includes('স্কোয়াড') ||
+          typeStr.includes('4V4') ||
+          typeStr.includes('4 VS 4') ||
+          titleStr.includes('4V4') ||
+          titleStr.includes('4 VS 4'));
 
+      const is1v1OrSolo = !isDuoMatch && !isSquadMatch;
+
+      if (matchTypeFilter === 'ALL') return true;
       if (matchTypeFilter === 'SOLO') {
         return is1v1OrSolo;
       }
@@ -186,6 +178,8 @@ export default function CategoryDetailPage() {
             uid: p.uid,
             slot: slotInfo.slotNumber,
             team: slotInfo.teamNumber,
+            userId: cur?.id,
+            userPhone: cur?.phone,
           }))
         : [
             {
@@ -193,6 +187,8 @@ export default function CategoryDetailPage() {
               uid: slotInfo.uid,
               slot: slotInfo.slotNumber,
               team: slotInfo.teamNumber,
+              userId: cur?.id,
+              userPhone: cur?.phone,
             },
           ];
 
@@ -352,7 +348,7 @@ export default function CategoryDetailPage() {
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <Play className="w-4 h-4" /> {t('সক্রিয় ম্যাচ', 'Active Matches')} ({categoryMatches.length})
+            <Play className="w-4 h-4" /> Active Matches ({categoryMatches.length})
           </button>
           <button
             onClick={() => setActiveTab('RESULT')}
@@ -362,34 +358,54 @@ export default function CategoryDetailPage() {
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <Award className="w-4 h-4" /> {t('ম্যাচ ফলাফল', 'Match Results')}
+            <Award className="w-4 h-4" /> Match Results
           </button>
         </div>
 
           {/* Tab 1: PLAY (Match Cards) */}
         {activeTab === 'PLAY' && (
           <div className="pt-6 space-y-6">
-            {/* Top Match Type Sub-Filter (Solo, Duo, Squad) */}
-            <div className="flex items-center justify-center gap-2 max-w-lg mx-auto p-1 rounded-2xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
-              {[
-                { key: 'SOLO', labelBn: 'সোলো (Solo)', labelEn: 'Solo' },
-                { key: 'DUO', labelBn: 'ডুও (Duo)', labelEn: 'Duo' },
-                { key: 'SQUAD', labelBn: 'স্কোয়াড (Squad)', labelEn: 'Squad' },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setMatchTypeFilter(item.key as any)}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all text-center ${
-                    matchTypeFilter === item.key
-                      ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  {t(item.labelBn, item.labelEn)}
-                </button>
-              ))}
-            </div>
+            {/* Top Match Type Sub-Filter (All Category Options strictly in English) */}
+            {(() => {
+              const slugStr = (slug || '').toLowerCase();
+              const isLostToWin = slugStr === 'lost-to-win' || slugStr.includes('lost');
+              const isLoneWolf = slugStr === 'lone-wolf' || slugStr.includes('lone') || slugStr.includes('wolf');
+
+              let items = [
+                { key: 'SOLO', label: 'Solo' },
+                { key: 'DUO', label: 'Duo' },
+                { key: 'SQUAD', label: 'Squad' },
+              ];
+
+              if (isLostToWin) {
+                items = [{ key: 'SOLO', label: 'Solo' }];
+              } else if (isLoneWolf) {
+                // Squad completely removed from all Lone Wolf variants
+                items = [
+                  { key: 'SOLO', label: 'Solo' },
+                  { key: 'DUO', label: 'Duo' },
+                ];
+              }
+
+              return (
+                <div className="flex items-center justify-center gap-2 max-w-lg mx-auto p-1 rounded-2xl bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10">
+                  {items.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setMatchTypeFilter(item.key as any)}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all text-center cursor-pointer ${
+                        matchTypeFilter === item.key
+                          ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
 
             {matchDetailsScreen ? (
               <MatchDetailsPage
@@ -417,14 +433,6 @@ export default function CategoryDetailPage() {
                       <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto">
                         {t(`এই ফিল্টারে (${matchTypeFilter}) কোনো সক্রিয় ম্যাচ পাওয়া যায়নি। অন্য ফিল্টার বেছে নিন।`, `No active matches found for this filter (${matchTypeFilter}).`)}
                       </p>
-                    </div>
-                    <div className="pt-2">
-                      <Link
-                        href="/admin"
-                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold btn-red"
-                      >
-                        <PlusCircle className="w-4 h-4" /> {t('অ্যাডমিন প্যানেলে ম্যাচ তৈরি করুন', 'Create Match in Admin')}
-                      </Link>
                     </div>
                   </div>
                 ) : (
@@ -461,7 +469,7 @@ export default function CategoryDetailPage() {
                             {/* Notice text on right */}
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold text-gray-800 dark:text-gray-200 leading-snug">
-                                কাস্টমে নিজের জায়গায় বসতে হবে বাধ্যতামূলক - আইডি লেভেল ৫৫+ থাকতে হবে -
+                                কাস্টমে নিজের জায়গায় বসতে হবে বাধ্যতামূলক - আইডি লেভেল ৪০+ থাকতে হবে -
                                 Normal {m.type} ম্যাচের নিয়ম পড়ে নিন, নিয়ম না মানলে রিফান্ড বা উইনিং
                                 পাবেন না! {settings.siteName || 'FF RIVAL TOUR BD'}
                               </p>

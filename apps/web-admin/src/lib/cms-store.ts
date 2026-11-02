@@ -1,9 +1,9 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { INITIAL_CATEGORIES, INITIAL_BANNERS } from './initial-categories';
+import { INITIAL_CATEGORIES, INITIAL_BANNERS, LONE_WOLF_1V1_RULES, LONE_WOLF_2V2_RULES } from './initial-categories';
 export { isMatchFinished } from '@/components/LiveMatchCountdown';
-export { INITIAL_CATEGORIES, INITIAL_BANNERS };
+export { INITIAL_CATEGORIES, INITIAL_BANNERS, LONE_WOLF_1V1_RULES, LONE_WOLF_2V2_RULES };
 
 export interface MatchItem {
   id: string;
@@ -30,7 +30,7 @@ export interface MatchItem {
   status?: 'UPCOMING' | 'ROOM_OPEN' | 'LIVE' | 'COMPLETED';
   /** Published after the match ends: who placed where, kills and prize won. */
   results?: Array<{ rank: number; ign: string; kills: number; prize: number }>;
-  participants?: Array<{ ign: string; uid?: string; slot?: number; team?: number }>;
+  participants?: Array<{ ign: string; uid?: string; slot?: number; team?: number; userId?: string; userPhone?: string; username?: string }>;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -40,6 +40,9 @@ export interface MatchParticipant {
   uid?: string;
   slot?: number;
   team?: number;
+  userId?: string;
+  userPhone?: string;
+  username?: string;
 }
 
 export interface CategoryItem {
@@ -132,7 +135,7 @@ export const INITIAL_SETTINGS: SiteSettings = {
   logoUrl: '/logo.png',
   noticeText:
     '🔥 FF RIVAL TOUR BD-তে স্বাগতম! প্রতিদিন গেম খেলে জিতে নিন আসল টাকা! 💰 টপ প্লেয়ার লিডারবোর্ডে নিজের নাম তুলুন এবং জিতে নিন মেগা প্রাইজপুল! যেকোনো সহায়তার জন্য টেলিগ্রামে যোগাযোগ করুন 🎯',
-  telegramUrl: 'https://t.me/ffrivaltourbd',
+  telegramUrl: 'https://t.me/ffrivalstourbdofficial',
   whatsappNumber: '8801700000000',
   bkashNumber: '01712345678',
   nagadNumber: '01812345678',
@@ -202,34 +205,9 @@ FF RIVAL TOUR BD এর সিদ্ধান্ত চূড়ান্ত সি
 2. বডি শটে নক বা কিল করলে অযোগ্য ঘোষিত হবেন।
 3. এমুলেটর, স্ক্রিপ্ট বা কনফিগ ব্যবহার সম্পূর্ণ নিষিদ্ধ।
 4. লেভেল সর্বনিম্ন ৪০+ হতে হবে।`,
-    'lone-wolf': `ðŸº Lone Wolf à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿ à¦¨à§€à¦¤à¦¿à¦®à¦¾à¦²à¦¾:
-[à¦¸à§‹à¦²à§‹ à¦à¦¬à¦‚ à¦¡à§à¦“ à¦®à§‹à¦¡à§‡à¦° à¦¨à¦¿à§Ÿà¦®à¦¾à¦¬à¦²à§€ à¦¨à¦¿à¦šà§‡ à¦†à¦²à¦¾à¦¦à¦¾à¦­à¦¾à¦¬à§‡ à¦¦à§‡à¦“à§Ÿà¦¾ à¦¹à¦²à§‹]
-
-ðŸ”¹ LONE WOLF 1V1 (SOLO):
-à§§. à§§ à¦¬à¦¨à¦¾à¦® à§§ à¦“à§Ÿà¦¾à¦¨-à¦Ÿà§à¦¯à¦¾à¦ª à¦“ à¦—à¦¾à¦¨ à¦«à¦¾à¦‡à¦Ÿ à¦¡à§à§Ÿà§‡à¦² à¦®à§à¦¯à¦¾à¦šà¥¤
-à§¨. à¦•à§‹à¦¨à§‹ à¦—à§à¦°à§‡à¦¨à§‡à¦¡, à¦«à§à¦²à§à¦¯à¦¾à¦¶ à¦¬à§à¦¯à¦¾à¦‚ à¦¬à¦¾ à¦¸à§à¦®à§‹à¦• à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§©. à¦•à§à¦¯à¦¾à¦°à§‡à¦•à§à¦Ÿà¦¾à¦° à¦¸à§à¦•à¦¿à¦² à¦°à§à¦®à§‡à¦° à¦¨à¦¿à§Ÿà¦® à¦…à¦¨à§à¦¯à¦¾à§Ÿà§€ à¦¹à¦¬à§‡à¥¤
-à§ª. à¦•à§‹à¦¨à§‹ à¦¹à§à¦¯à¦¾à¦• à¦¬à¦¾ à¦ªà§à¦¯à¦¾à¦¨à§‡à¦² à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦²à§‡ à¦¸à¦¾à¦¥à§‡ à¦¸à¦¾à¦¥à§‡ à¦…à§à¦¯à¦¾à¦•à¦¾à¦‰à¦¨à§à¦Ÿ à¦“ à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦¬à§à¦¯à¦¾à¦¨à¥¤
-à§«. à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·à§‡ à¦‰à¦‡à¦¨à¦¾à¦° à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦¸à¦¾à¦ªà§‹à¦°à§à¦Ÿ à¦¬à¦Ÿà§‡ à¦¦à¦¿à¦²à§‡ à¦¬à¦Ÿ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦ªà§à¦°à¦¾à¦‡à¦œ à¦¬à§à¦¯à¦¾à¦²à§‡à¦¨à§à¦¸à§‡ à¦¯à§‹à¦— à¦•à¦°à¦¬à§‡à¥¤
-
-ðŸ”¹ LONE WOLF 2V2 (DUO):
-à§§. à§¨ à¦¬à¦¨à¦¾à¦® à§¨ à¦¡à§à¦“ à¦Ÿà¦¿à¦® à¦«à¦¾à¦‡à¦Ÿà¥¤ à¦ªà§à¦°à¦¤à¦¿ à¦Ÿà¦¿à¦®à§‡ à§¨ à¦œà¦¨ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à¥¤
-à§¨. à¦‰à¦­à¦¯à¦¼ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à¦•à§‡ à¦…à¦¬à¦¶à§à¦¯à¦‡ à¦¨à¦¿à¦°à§à¦§à¦¾à¦°à¦¿à¦¤ à¦Ÿà¦¿à¦® à¦¸à§à¦²à¦Ÿà§‡ (Slot 1 à¦¬à¦¾ Slot 2) à¦œà¦¯à¦¼à§‡à¦¨ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤
-à§©. à¦•à§‹à¦¨ à¦ªà§à¦°à¦•à¦¾à¦° à¦—à§à¦°à§‡à¦¨à§‡à¦¡ à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§ª. à¦¹à§à¦¯à¦¾à¦•à¦¿à¦‚ à¦ªà§à¦°à¦®à¦¾à¦£à¦¿à¦¤ à¦¹à¦²à§‡ à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦Ÿà¦¿à¦® à¦…à¦¯à§‹à¦—à§à¦¯ à¦“ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à§‡à¦° à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦ªà¦¾à¦°à§à¦®à¦¾à¦¨à§‡à¦¨à§à¦Ÿ à¦¬à§à¦¯à¦¾à¦¨ à¦¹à¦¬à§‡à¥¤
-à§«. à¦¬à¦¿à¦œà§Ÿà§€ à¦Ÿà¦¿à¦® à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦œà¦®à¦¾ à¦¦à¦¿à¦²à§‡ à¦¬à¦Ÿ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦ªà§à¦°à¦¾à¦‡à¦œ à¦®à¦¾à¦¨à¦¿ à¦•à§à¦°à§‡à¦¡à¦¿à¦Ÿ à¦•à¦°à¦¬à§‡à¥¤`,
-    'lone-wolf-solo': `ðŸº Lone Wolf 1v1 (Solo) à¦¨à¦¿à§Ÿà¦®à¦¾à¦¬à¦²à§€:
-à§§. à¦à¦Ÿà¦¿ à§§ à¦¬à¦¨à¦¾à¦® à§§ à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦¸à§‹à¦²à§‹ à¦¡à§à¦¯à¦¼à§‡à¦² à¦®à§à¦¯à¦¾à¦šà¥¤
-à§¨. à¦®à§à¦¯à¦¾à¦šà§‡ à¦¶à§à¦§à§ à¦—à¦¾à¦¨ à¦¦à¦¿à§Ÿà§‡ à¦«à¦¾à¦‡à¦Ÿ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤ à¦—à§à¦°à§‡à¦¨à§‡à¦¡/à¦¸à§à¦®à§‹à¦• à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§©. à¦•à§à¦¯à¦¾à¦°à§‡à¦•à§à¦Ÿà¦¾à¦° à¦¸à§à¦•à¦¿à¦² à¦°à§à¦®à§‡à¦° à¦¨à¦¿à¦°à§à¦§à¦¾à¦°à¦¿à¦¤ à¦¸à§‡à¦Ÿà¦¿à¦‚ à¦…à¦¨à§à¦¯à¦¾à§Ÿà§€ à¦¹à¦¬à§‡à¥¤
-à§ª. à¦¹à§à¦¯à¦¾à¦•à¦¿à¦‚ à¦¬à¦¾ à¦•à§‹à¦¨à§‹ à¦§à¦°à¦£à§‡à¦° à¦šà¦¿à¦Ÿà¦¿à¦‚ à¦ªà§à¦°à¦®à¦¾à¦£à¦¿à¦¤ à¦¹à¦²à§‡ à¦‡à¦¨à¦¸à§à¦Ÿà§à¦¯à¦¾à¦¨à§à¦Ÿ à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦¬à§à¦¯à¦¾à¦¨ à¦•à¦¾à¦°à§à¦¯à¦•à¦° à¦¹à¦¬à§‡à¥¤
-à§«. à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·à§‡ à¦‰à¦‡à¦¨à¦¾à¦° à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦¬à¦Ÿà§‡ à¦†à¦ªà¦²à§‹à¦¡ à¦•à¦°à¦²à§‡ à¦¬à¦Ÿ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦ªà§à¦°à¦¾à¦‡à¦œ à¦¬à§à¦¯à¦¾à¦²à§‡à¦¨à§à¦¸à§‡ à¦¯à§‹à¦— à¦•à¦°à§‡ à¦¦à§‡à¦¬à§‡à¥¤`,
-    'lone-wolf-duo': `ðŸº Lone Wolf 2v2 (Duo) à¦¨à¦¿à§Ÿà¦®à¦¾à¦¬à¦²à§€:
-à§§. à¦à¦Ÿà¦¿ à§¨ à¦¬à¦¨à¦¾à¦® à§¨ à¦¡à§à¦“ à¦®à§à¦¯à¦¾à¦šà¥¤ à¦ªà§à¦°à¦¤à¦¿à¦Ÿà¦¿ à¦Ÿà¦¿à¦®à§‡ à§¨ à¦œà¦¨ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦° à¦¥à¦¾à¦•à¦¬à§‡à¥¤
-à§¨. à¦‰à¦­à¦¯à¦¼ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à¦•à§‡ à¦…à¦¬à¦¶à§à¦¯à¦‡ à¦¨à¦¿à¦°à§à¦§à¦¾à¦°à¦¿à¦¤ à¦¸à§à¦²à¦Ÿà§‡ (Slot 1 à¦¬à¦¾ Slot 2) à¦œà¦¯à¦¼à§‡à¦¨ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤
-à§©. à¦•à§‹à¦¨ à¦ªà§à¦°à¦•à¦¾à¦° à¦—à§à¦°à§‡à¦¨à§‡à¦¡ (Grenade/Flashbang) à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦¾ à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§ª. à¦¹à§à¦¯à¦¾à¦•, à¦¸à§à¦•à§à¦°à¦¿à¦ªà§à¦Ÿ, à¦¬à¦¾ à¦¥à¦¾à¦°à§à¦¡ à¦ªà¦¾à¦°à§à¦Ÿà¦¿ à¦…à§à¦¯à¦¾à¦ª à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦²à§‡ à¦…à§à¦¯à¦¾à¦•à¦¾à¦‰à¦¨à§à¦Ÿ à¦“ à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦¸à§à¦¥à¦¾à§Ÿà§€à¦­à¦¾à¦¬à§‡ à¦¬à§à¦¯à¦¾à¦¨ à¦•à¦°à¦¾ à¦¹à¦¬à§‡à¥¤
-à§«. à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·à§‡ à¦¬à¦¿à¦œà§Ÿà§€ à¦¦à¦²à§‡à¦° à¦°à§à¦® à¦“ à¦‰à¦‡à¦¨ à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦¸à¦¾à¦ªà§‹à¦°à§à¦Ÿ à¦¬à¦Ÿà§‡ à¦œà¦®à¦¾ à¦¦à¦¿à§Ÿà§‡ à¦ªà§à¦°à¦¾à¦‡à¦œ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤`,
+    'lone-wolf': LONE_WOLF_1V1_RULES,
+    'lone-wolf-solo': LONE_WOLF_1V1_RULES,
+    'lone-wolf-duo': LONE_WOLF_2V2_RULES,
     'lost-to-win': `💰 Lost To Win (1 vs 1) বিশেষ নিয়মাবলী:
 1. ১v১ চ্যালেঞ্জ লড়াই। হারলেও অথবা জিতলেও ক্যাশ রিটার্ন অফার প্রযোজ্য।
 2. কাস্টম রুমে নিজের স্লটে উপস্থিত থাকতে হবে।
@@ -280,34 +258,50 @@ export function getEffectiveMatchRules(
   categories?: Record<string, CategoryItem>,
   settings?: SiteSettings
 ): string {
+  const slugLower = (match.categorySlug || '').toLowerCase();
+  const titleLower = (match.title || '').toLowerCase();
   const isLoneWolf =
-    (match.categorySlug || '').toLowerCase().includes('lone') ||
-    (match.title || '').toLowerCase().includes('lone');
+    slugLower.includes('lone') ||
+    slugLower.includes('wolf') ||
+    titleLower.includes('lone') ||
+    titleLower.includes('wolf');
 
-  if (isLoneWolf) {
-    const typeStr = (match.type || (match as any).matchType || '').toLowerCase();
-    const isDuo =
-      typeStr.includes('duo') ||
-      typeStr.includes('2v2') ||
-      typeStr.includes('2 vs 2') ||
-      match.totalSlots === 4;
+  const isHeadshot =
+    slugLower.includes('headshot') ||
+    slugLower === 'cs-only-headshot' ||
+    titleLower.includes('headshot');
 
+  const typeStr = (match.type || (match as any).matchType || '').toLowerCase();
+  const isDuo =
+    typeStr.includes('duo') ||
+    typeStr.includes('2v2') ||
+    typeStr.includes('2 vs 2') ||
+    match.totalSlots === 4;
+
+  const isSolo =
+    typeStr.includes('solo') ||
+    typeStr.includes('1v1') ||
+    typeStr.includes('1 vs 1') ||
+    match.totalSlots === 2;
+
+  if (isLoneWolf || (isHeadshot && (isSolo || isDuo))) {
     if (isDuo) {
-      if (settings?.categoryRules?.['lone-wolf-duo']) return settings.categoryRules['lone-wolf-duo'];
-      return `ðŸº Lone Wolf (2 VS 2 DUO) à¦¸à§à¦ªà§‡à¦¶à¦¾à¦² à¦¨à¦¿à§Ÿà¦®à¦¾à¦¬à¦²à§€:
-à§§. à¦à¦Ÿà¦¿ à§¨ à¦¬à¦¨à¦¾à¦® à§¨ à¦¡à§à¦“ à¦®à§à¦¯à¦¾à¦šà¥¤ à¦ªà§à¦°à¦¤à¦¿à¦Ÿà¦¿ à¦Ÿà¦¿à¦®à§‡ à§¨ à¦œà¦¨ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦° à¦¥à¦¾à¦•à¦¬à§‡à¥¤
-à§¨. à¦‰à¦­à¦¯à¦¼ à¦ªà§à¦²à§‡à¦¯à¦¼à¦¾à¦°à¦•à§‡ à¦…à¦¬à¦¶à§à¦¯à¦‡ à¦¨à¦¿à¦°à§à¦§à¦¾à¦°à¦¿à¦¤ à¦¸à§à¦²à¦Ÿà§‡ (Slot 1 à¦¬à¦¾ Slot 2) à¦œà¦¯à¦¼à§‡à¦¨ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤
-à§©. à¦•à§‹à¦¨ à¦ªà§à¦°à¦•à¦¾à¦° à¦—à§à¦°à§‡à¦¨à§‡à¦¡ (Grenade/Flashbang) à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦¾ à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§ª. à¦•à§‹à¦¨ à¦ªà§à¦°à¦•à¦¾à¦° à¦¹à§à¦¯à¦¾à¦•, à¦¸à§à¦•à§à¦°à¦¿à¦ªà§à¦Ÿ, à¦¬à¦¾ à¦¥à¦¾à¦°à§à¦¡ à¦ªà¦¾à¦°à§à¦Ÿà¦¿ à¦…à§à¦¯à¦¾à¦ª à¦¬à§à¦¯à¦¬à¦¹à¦¾à¦° à¦•à¦°à¦²à§‡ à¦…à§à¦¯à¦¾à¦•à¦¾à¦‰à¦¨à§à¦Ÿ à¦“ à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦¸à§à¦¥à¦¾à§Ÿà§€à¦­à¦¾à¦¬à§‡ à¦¬à§à¦¯à¦¾à¦¨ à¦•à¦°à¦¾ à¦¹à¦¬à§‡à¥¤
-à§«. à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·à§‡ à¦¬à¦¿à¦œà§Ÿà§€ à¦¦à¦²à§‡à¦° à¦°à§à¦® à¦“ à¦‰à¦‡à¦¨ à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦¸à¦¾à¦ªà§‹à¦°à§à¦Ÿ à¦¬à¦Ÿà§‡ à¦œà¦®à¦¾ à¦¦à¦¿à§Ÿà§‡ à¦ªà§à¦°à¦¾à¦‡à¦œ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦—à§à¦°à¦¹à¦£ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤`;
+      if (settings?.categoryRules?.['lone-wolf-duo'] && settings.categoryRules['lone-wolf-duo'].trim() !== '') {
+        return settings.categoryRules['lone-wolf-duo'];
+      }
+      return LONE_WOLF_2V2_RULES;
     } else {
-      if (settings?.categoryRules?.['lone-wolf-solo']) return settings.categoryRules['lone-wolf-solo'];
-      return `ðŸº Lone Wolf (1 VS 1 SOLO) à¦¸à§à¦ªà§‡à¦¶à¦¾à¦² à¦¨à¦¿à§Ÿà¦®à¦¾à¦¬à¦²à§€:
-à§§. à¦à¦Ÿà¦¿ à§§ à¦¬à¦¨à¦¾à¦® à§§ à¦¸à¦®à§à¦ªà§‚à¦°à§à¦£ à¦¸à§‹à¦²à§‹ à¦¡à§à¦¯à¦¼à§‡à¦² à¦®à§à¦¯à¦¾à¦šà¥¤
-à§¨. à¦®à§à¦¯à¦¾à¦šà§‡ à¦¶à§à¦§à§ à¦—à¦¾à¦¨ (Guns) à¦¦à¦¿à§Ÿà§‡ à¦«à¦¾à¦‡à¦Ÿ à¦•à¦°à¦¤à§‡ à¦¹à¦¬à§‡à¥¤ à¦—à§à¦°à§‡à¦¨à§‡à¦¡/à¦¸à§à¦®à§‹à¦• à¦¨à¦¿à¦·à¦¿à¦¦à§à¦§à¥¤
-à§©. à¦•à§à¦¯à¦¾à¦°à§‡à¦•à§à¦Ÿà¦¾à¦° à¦¸à§à¦•à¦¿à¦² à¦…à¦«/à¦…à¦¨ à¦°à§à¦®à§‡à¦° à¦¨à¦¿à§Ÿà¦® à¦…à¦¨à§à¦¯à¦¾à§Ÿà§€ à¦®à§‡à¦¨à§‡ à¦šà¦²à¦¤à§‡ à¦¹à¦¬à§‡à¥¤
-à§ª. à¦¹à§à¦¯à¦¾à¦•à¦¿à¦‚ à¦¬à¦¾ à¦•à§‹à¦¨ à¦§à¦°à¦£à§‡à¦° à¦šà¦¿à¦Ÿà¦¿à¦‚ à¦ªà§à¦°à¦®à¦¾à¦£à¦¿à¦¤ à¦¹à¦²à§‡ à¦‡à¦¨à¦¸à§à¦Ÿà§à¦¯à¦¾à¦¨à§à¦Ÿ à¦¡à¦¿à¦­à¦¾à¦‡à¦¸ à¦¬à§à¦¯à¦¾à¦¨ à¦•à¦¾à¦°à§à¦¯à¦•à¦° à¦¹à¦¬à§‡à¥¤
-à§«. à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·à§‡ à¦‰à¦‡à¦¨à¦¾à¦° à¦¸à§à¦•à§à¦°à¦¿à¦¨à¦¶à¦Ÿ à¦¬à¦Ÿà§‡ à¦†à¦ªà¦²à§‹à¦¡ à¦•à¦°à¦²à§‡ à¦¬à¦Ÿ à¦…à¦Ÿà§‹à¦®à§‡à¦Ÿà¦¿à¦• à¦ªà§à¦°à¦¾à¦‡à¦œ à¦¬à§à¦¯à¦¾à¦²à§‡à¦¨à§à¦¸à§‡ à¦¯à§‹à¦— à¦•à¦°à§‡ à¦¦à§‡à¦¬à§‡à¥¤`;
+      if (settings?.categoryRules?.['lone-wolf-solo'] && settings.categoryRules['lone-wolf-solo'].trim() !== '') {
+        return settings.categoryRules['lone-wolf-solo'];
+      }
+      if (settings?.categoryRules?.['lone-wolf'] && settings.categoryRules['lone-wolf'].trim() !== '') {
+        return settings.categoryRules['lone-wolf'];
+      }
+      const cat = categories?.[match.categorySlug] || categories?.['lone-wolf'];
+      if (cat?.customRules && cat.customRules.trim() !== '') {
+        return cat.customRules;
+      }
+      return LONE_WOLF_1V1_RULES;
     }
   }
 
@@ -345,6 +339,20 @@ export function getCMSData(): CMSData {
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...parsed, matches: [] }));
         } catch (e) {}
       }
+    }
+
+    const LEADERBOARD_RESET_KEY = 'ff_leaderboard_fresh_reset_v20';
+    if (!localStorage.getItem(LEADERBOARD_RESET_KEY)) {
+      if (parsed) {
+        parsed.topPlayers = [];
+        if (Array.isArray(parsed.matches)) {
+          parsed.matches = parsed.matches.map((m: any) => ({ ...m, results: [], status: m.status === 'COMPLETED' ? 'UPCOMING' : m.status }));
+        }
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        } catch (e) {}
+      }
+      localStorage.setItem(LEADERBOARD_RESET_KEY, '1');
     }
 
     const merged: CMSData = normalizeCMSData({
@@ -387,11 +395,11 @@ export function normalizeCMSData(input: Partial<CMSData> | null | undefined): CM
       const initialAvatar = initialCat?.avatarImage || initialBanner;
 
       let bannerImage = item.bannerImage;
-      if (!bannerImage || bannerImage.includes('unsplash.com') || bannerImage === '/logo.png') {
+      if (!bannerImage || bannerImage.includes('unsplash.com') || bannerImage === '/logo.png' || bannerImage === '/banners/default.png' || bannerImage.startsWith('/uploads/')) {
         bannerImage = initialBanner || bannerImage;
       }
       let avatarImage = item.avatarImage;
-      if (!avatarImage || avatarImage.includes('unsplash.com') || avatarImage === '/logo.png') {
+      if (!avatarImage || avatarImage.includes('unsplash.com') || avatarImage === '/logo.png' || avatarImage === '/banners/default.png' || avatarImage.startsWith('/uploads/')) {
         avatarImage = initialAvatar || bannerImage;
       }
 
@@ -426,14 +434,16 @@ export function normalizeCMSData(input: Partial<CMSData> | null | undefined): CM
               : cat?.bannerImage || cat?.avatarImage || '/logo.png';
 
           if (isLoneWolf) {
+            const isDuo = m.totalSlots === 4 || m.type === '2 vs 2' || m.type === '2v2' || m.type?.toLowerCase()?.includes('duo') || m.type?.includes('2 vs 2');
             return {
               ...m,
+              type: isDuo ? '2 vs 2' : '1 vs 1',
+              totalSlots: isDuo ? 4 : 2,
               bannerImage,
               perKill: 0,
               secondPrize: 0,
               thirdPrize: 0,
               firstPrize: m.firstPrize || m.prizePool,
-              totalSlots: (m.type === '2 vs 2' || m.type === '2v2' || m.type?.toLowerCase() === 'duo' || m.type?.includes('2 vs 2')) ? 4 : 2,
             };
           }
           if (isClashSquad) {
@@ -459,7 +469,7 @@ export function normalizeCMSData(input: Partial<CMSData> | null | undefined): CM
     : INITIAL_BANNERS;
   const healedBanners = rawBanners.map((b: any, idx: number) => {
     let img = b?.image;
-    if (!img || img.includes('unsplash.com') || img === '/logo.png') {
+    if (!img || img.includes('unsplash.com') || img === '/logo.png' || img === '/banners/default.png' || img.startsWith('/uploads/')) {
       img = INITIAL_BANNERS[idx]?.image || INITIAL_BANNERS[0]?.image || img;
     }
     return {
@@ -481,7 +491,7 @@ export function normalizeCMSData(input: Partial<CMSData> | null | undefined): CM
       importantNoticeEnabled: src.settings?.importantNoticeEnabled ?? INITIAL_SETTINGS.importantNoticeEnabled,
     },
     topPlayers: Array.isArray(src.topPlayers)
-      ? src.topPlayers.filter((p: any) => p && typeof p === 'object')
+      ? src.topPlayers.filter((p: any) => p && typeof p === 'object' && !p.id?.startsWith('tp-') && p.ign)
       : INITIAL_TOP_PLAYERS,
     deletedCategories,
     matchesClearedAt: typeof src.matchesClearedAt === 'number' ? src.matchesClearedAt : undefined,
@@ -507,6 +517,10 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   } catch (e) {}
 }
 
+export function prepareCMSPayload(data: CMSData) {
+  return data;
+}
+
 export function saveCMSData(input: CMSData): void {
   if (typeof window === 'undefined') return;
   const data = normalizeCMSData(input);
@@ -523,11 +537,11 @@ export function saveCMSData(input: CMSData): void {
 
   // Server sync so all phones, emulators and browsers stay updated
   try {
+    const payload = prepareCMSPayload(data);
     fetch('/api/cms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      keepalive: true,
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     }).catch(() => {});
   } catch (e) {}
 }
@@ -544,10 +558,11 @@ export async function saveCMSDataAsync(input: CMSData): Promise<boolean> {
   } catch (e) {}
 
   try {
+    const payload = prepareCMSPayload(data);
     const res = await fetch('/api/cms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     return res.ok;
   } catch (e) {
@@ -561,6 +576,7 @@ export function addMatch(match: Omit<MatchItem, 'id' | 'filledSlots'>): MatchIte
   const isClashSquad = match.categorySlug === 'clash-squad' || match.categorySlug === 'cs-only-headshot';
 
   let totalSlots = match.totalSlots;
+  let matchTypeVal = match.type || "1 vs 1";
   let perKill = match.perKill;
   let firstPrize = match.firstPrize || match.prizePool;
   let secondPrize = match.secondPrize || 0;
@@ -571,7 +587,9 @@ export function addMatch(match: Omit<MatchItem, 'id' | 'filledSlots'>): MatchIte
     secondPrize = 0;
     thirdPrize = 0;
     firstPrize = match.prizePool;
-    totalSlots = (match.type === '2 vs 2' || match.type === '2v2' || match.type.toLowerCase() === 'duo' || match.type.includes('2 vs 2')) ? 4 : 2;
+    const isDuo = totalSlots === 4 || match.type === '2 vs 2' || match.type === '2v2' || match.type?.toLowerCase()?.includes('duo') || match.type?.includes('2 vs 2');
+    totalSlots = isDuo ? 4 : 2;
+    matchTypeVal = isDuo ? "2 vs 2" : "1 vs 1";
   } else if (isClashSquad) {
     perKill = 0;
     secondPrize = 0;
@@ -581,7 +599,11 @@ export function addMatch(match: Omit<MatchItem, 'id' | 'filledSlots'>): MatchIte
   }
 
   const cat = data.categories[match.categorySlug];
-  const catRule = getEffectiveCategoryRule(match.categorySlug, data.categories, data.settings);
+  const catRule = getEffectiveMatchRules(
+    { ...match, totalSlots } as MatchItem,
+    data.categories,
+    data.settings
+  );
   const finalBanner =
     match.bannerImage && match.bannerImage.trim() !== '' && match.bannerImage !== '/logo.png'
       ? match.bannerImage
@@ -590,6 +612,7 @@ export function addMatch(match: Omit<MatchItem, 'id' | 'filledSlots'>): MatchIte
   const now = Date.now();
   const newMatch: MatchItem = {
     ...match,
+    type: matchTypeVal,
     rules: match.rules && match.rules.trim() !== '' ? match.rules : catRule,
     bannerImage: finalBanner,
     totalSlots,
@@ -624,6 +647,13 @@ export function updateMatch(matchId: string, updated: Partial<MatchItem>): void 
     const now = Date.now();
     data.matches[index] = { ...existing, ...updated, ...(roomDeliveredAt ? { roomDeliveredAt } : {}), updatedAt: now };
     data.matchesUpdatedAt = now;
+
+    // Auto-update topPlayers when results are added or updated
+    const liveTop = getLiveTopPlayers(data);
+    if (liveTop && liveTop.length > 0) {
+      data.topPlayers = liveTop;
+    }
+
     saveCMSData(data);
   }
 }
@@ -677,6 +707,11 @@ export async function updateCategory(slug: string, updated: Partial<CategoryItem
     updatedAt: Date.now(),
   };
 
+  // If this category was previously deleted, un-delete it
+  if (data.deletedCategories && data.deletedCategories.includes(slug)) {
+    data.deletedCategories = data.deletedCategories.filter((s) => s !== slug);
+  }
+
   data.categories[slug] = updatedCategory;
 
   // Auto-propagate category rules to settings and all matches belonging to this category:
@@ -698,6 +733,73 @@ export async function updateCategory(slug: string, updated: Partial<CategoryItem
 
   saveCMSData(data);
   return true;
+}
+
+
+export async function addCategory(
+  newCategory: Omit<CategoryItem, 'id'> & { id?: number }
+): Promise<{ ok: boolean; slug: string; error?: string }> {
+  const data = getCMSData();
+  if (!data.categories) {
+    data.categories = {};
+  }
+
+  let cleanSlug = (newCategory.slug || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  if (!cleanSlug) {
+    cleanSlug = (newCategory.name || 'category')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  if (!cleanSlug) {
+    cleanSlug = 'category-' + Date.now();
+  }
+
+  let uniqueSlug = cleanSlug;
+  let counter = 1;
+  while (data.categories[uniqueSlug]) {
+    uniqueSlug = cleanSlug + '-' + counter;
+    counter++;
+  }
+
+  const finalBanner = newCategory.bannerImage?.trim() || newCategory.avatarImage?.trim() || '/logo.png';
+  const finalAvatar = newCategory.avatarImage?.trim() || newCategory.bannerImage?.trim() || '/logo.png';
+
+  const categoryItem: CategoryItem = {
+    slug: uniqueSlug,
+    id: newCategory.id || Date.now(),
+    name: newCategory.name.trim(),
+    section: newCategory.section?.trim() || 'FREE FIRE MATCHES',
+    bannerImage: finalBanner,
+    avatarImage: finalAvatar,
+    description: newCategory.description || '',
+    customRules: newCategory.customRules || '',
+    updatedAt: Date.now(),
+  };
+
+  if (data.deletedCategories && data.deletedCategories.includes(uniqueSlug)) {
+    data.deletedCategories = data.deletedCategories.filter((s) => s !== uniqueSlug);
+  }
+
+  data.categories[uniqueSlug] = categoryItem;
+
+  if (categoryItem.customRules) {
+    if (!data.settings.categoryRules) {
+      data.settings.categoryRules = {};
+    }
+    data.settings.categoryRules[uniqueSlug] = categoryItem.customRules;
+    data.settings.updatedAt = Date.now();
+  }
+
+  saveCMSData(data);
+  return { ok: true, slug: uniqueSlug };
 }
 
 export async function deleteCategory(slug: string): Promise<boolean> {
@@ -737,16 +839,26 @@ export function resetCMS(): void {
 
 let globalSyncInitialized = false;
 let isSyncInProgress = false;
+let lastKnownCmsVersion: string = '';
 
 export function syncCMSWithServer(): void {
   if (typeof window === 'undefined' || isSyncInProgress) return;
   isSyncInProgress = true;
 
-  fetch(`/api/cms?t=${Date.now()}`, { cache: 'no-store' })
+  const vParam = lastKnownCmsVersion ? `&v=${lastKnownCmsVersion}` : '';
+  fetch(`/api/cms?t=${Date.now()}${vParam}`, { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
     .then((serverData) => {
       isSyncInProgress = false;
-      if (serverData && typeof serverData === 'object' && !serverData.error) {
+      if (!serverData) return;
+      if (serverData.unchanged) {
+        // Data is 100% identical, skip parsing & disk writes
+        return;
+      }
+      if (serverData._v) {
+        lastKnownCmsVersion = String(serverData._v);
+      }
+      if (typeof serverData === 'object' && !serverData.error) {
         const current = getCMSData();
         const serverMatches = Array.isArray(serverData.matches) ? serverData.matches : null;
         const serverCategories =
@@ -875,10 +987,7 @@ export function syncCMSWithServer(): void {
           const serverIdSet = new Set(validServerMatches.map((m: MatchItem) => m.id));
           const now = Date.now();
           const localPending = (current?.matches || []).filter(
-            (m: MatchItem) =>
-              !serverIdSet.has(m.id) &&
-              getMatchTime(m) > effectiveClearedAt &&
-              now - getMatchTime(m) < 60000
+            (m: MatchItem) => !serverIdSet.has(m.id) && getMatchTime(m) > effectiveClearedAt
           );
           mergedMatches = [...localPending, ...validServerMatches];
         } else {
@@ -919,7 +1028,7 @@ export function syncCMSWithServer(): void {
     });
 }
 
-const DEFAULT_PLAYER_AVATAR = 'https://images.unsplash.com/photo-1566492031773-4f4e44671857?q=80&w=120';
+const DEFAULT_PLAYER_AVATAR = '/avatars/avatar-1.png';
 
 export function getLiveTopPlayers(cmsData?: CMSData): TopPlayerItem[] {
   const currentCMS = cmsData || getCMSData();
@@ -970,6 +1079,44 @@ export function getLiveTopPlayers(cmsData?: CMSData): TopPlayerItem[] {
     } catch (e) {}
   }
 
+  // Dynamically aggregate all completed matches from CMS matches:
+  if (Array.isArray(currentCMS?.matches)) {
+    currentCMS.matches.forEach((m) => {
+      if (Array.isArray(m.results) && m.results.length > 0) {
+        m.results.forEach((r) => {
+          const ign = String(r.ign || '').trim();
+          if (!ign) return;
+          const kills = Number(r.kills || 0);
+          const prize = Number(r.prize || 0);
+          const isWin = Number(r.rank) === 1;
+
+          const existingIdx = rawList.findIndex((p) => p.ign.toLowerCase() === ign.toLowerCase());
+          if (existingIdx !== -1) {
+            rawList[existingIdx].kills = Math.max(rawList[existingIdx].kills, rawList[existingIdx].kills + kills);
+            rawList[existingIdx].earnings = Math.max(rawList[existingIdx].earnings, rawList[existingIdx].earnings + prize);
+            rawList[existingIdx].matchesPlayed = Math.max(rawList[existingIdx].matchesPlayed, rawList[existingIdx].matchesPlayed + 1);
+            if (isWin) rawList[existingIdx].booyahs = (rawList[existingIdx].booyahs || 0) + 1;
+            const matches = rawList[existingIdx].matchesPlayed || 1;
+            rawList[existingIdx].winRate = `${Math.round(((rawList[existingIdx].booyahs || 0) / matches) * 100)}%`;
+          } else {
+            rawList.push({
+              id: `result-${ign.toLowerCase()}`,
+              rank: 0,
+              ign: ign.toUpperCase(),
+              uid: '',
+              avatar: DEFAULT_PLAYER_AVATAR,
+              kills,
+              earnings: prize,
+              matchesPlayed: 1,
+              booyahs: isWin ? 1 : 0,
+              winRate: isWin ? '100%' : '0%',
+            });
+          }
+        });
+      }
+    });
+  }
+
   // Filter out any entries without an IGN
   const validPlayers = rawList.filter((p) => p && p.ign && p.ign.trim().length > 0);
 
@@ -989,8 +1136,8 @@ function initGlobalCmsSync(): void {
   globalSyncInitialized = true;
 
   syncCMSWithServer();
-  // 1.5-second rapid sync so Owner panel changes go live immediately to all devices
-  setInterval(syncCMSWithServer, 1500);
+  // 6-second smart sync so Owner panel changes go live to all devices
+  setInterval(syncCMSWithServer, 6000);
 
   const onVisibilityChange = () => {
     if (document.visibilityState === 'visible') {
@@ -1000,7 +1147,6 @@ function initGlobalCmsSync(): void {
   window.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('focus', syncCMSWithServer);
   window.addEventListener('online', syncCMSWithServer);
-  window.addEventListener('touchstart', () => { syncCMSWithServer(); }, { passive: true });
 }
 
 // React Hook for Reactive CMS Sync across pages
@@ -1054,6 +1200,7 @@ export function useCMS() {
     updateMatch,
     deleteMatch,
     clearAllMatches,
+    addCategory,
     updateCategory,
     deleteCategory,
     updateSiteSettings,

@@ -153,25 +153,33 @@ export async function requestNotificationPermission(): Promise<boolean> {
 export function dispatchDevicePushNotification(
   title: string,
   message: string,
-  categorySlug?: string
+  categorySlug?: string,
+  targetUrl: string = '/matches'
 ): AppNotification {
-  // 1. In-app notification
+  // 1. In-app notification stored in browser
   const notif = sendBroadcastNotification(title, message, categorySlug);
 
-  // 2. Real Browser / OS Notification
+  // 2. Android Native Heads-up Notification (APK)
+  if (typeof window !== 'undefined' && (window as any).AndroidBridge?.showNativeNotification) {
+    try {
+      (window as any).AndroidBridge.showNativeNotification(title, message, targetUrl);
+    } catch (e) {}
+  }
+
+  // 3. Real Browser / OS Notification (Web)
   if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
     try {
       new Notification(title, {
         body: message,
-        icon: '/logo.png',
-        badge: '/logo.png',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
       });
     } catch (e) {
       // In mobile WebViews Notification constructor might require Service Worker
     }
   }
 
-  // 3. Audio chime if supported
+  // 4. Audio chime if supported
   if (typeof window !== 'undefined') {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -189,6 +197,22 @@ export function dispatchDevicePushNotification(
         osc.start();
         osc.stop(audioCtx.currentTime + 0.35);
       }
+    } catch (e) {}
+  }
+
+  // 5. SERVER-SIDE PUSH BROADCAST TO ALL PHONES & USERS VIA WEB-PUSH & FEED!
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/api/notifications/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          message,
+          url: targetUrl || (categorySlug ? `/category/${categorySlug}` : '/matches'),
+          icon: '/icon-192.png',
+        }),
+      }).catch(() => {});
     } catch (e) {}
   }
 
@@ -596,6 +620,7 @@ export interface UserBookedMatch {
   bookedAt: string;
   userId?: string;
   userPhone?: string;
+  username?: string;
 }
 
 const BOT_MONITORED_STORAGE_KEY = 'ff_bot_monitored_matches_v2';
@@ -746,16 +771,19 @@ export function autoDeliverRoomCredentials(matchId: string, customRoomId?: strin
   // 3. Update User Bookings storage if user has booked this match
   updateUserBookingsWithRoomCredentials(matchId, roomId, roomPass, deliveryIso);
 
-  // 4. Dispatch notification to all users (both in-app and browser/device push)
-  dispatchDevicePushNotification(
-    '🔑 রুম আইডি ও পাসওয়ার্ড ডেলিভারি!',
-    `"${match.title}" ম্যাচের রুম আইডি: ${roomId} এবং পাসওয়ার্ড: ${roomPass} উন্মুক্ত করা হয়েছে। দ্রুত ফ্রি ফায়ারে জয়েন করুন!`,
-    match.categorySlug
-  );
+  // 4. Dispatch notification ONLY to players who bought/joined this match!
+  const isJoined = isUserJoinedInMatch(matchId);
+  if (isJoined) {
+    dispatchDevicePushNotification(
+      '🔑 রুম আইডি ও পাসওয়ার্ড ডেলিভারি!',
+      `"${match.title}" ম্যাচের রুম আইডি: ${roomId} এবং পাসওয়ার্ড: ${roomPass} উন্মুক্ত করা হয়েছে। দ্রুত ফ্রি ফায়ারে জয়েন করুন!`,
+      match.categorySlug
+    );
+  }
 
   window.dispatchEvent(
     new CustomEvent('ff_room_credentials_delivered', {
-      detail: { matchId, roomId, roomPass, roomDeliveredAt: deliveryIso },
+      detail: { matchId, roomId, roomPass, roomDeliveredAt: deliveryIso, isParticipant: isJoined },
     })
   );
 
@@ -842,6 +870,28 @@ export function runBotRoomManagerCycle(): number {
 /*  User Booked Matches Persistent Helpers                            */
 /* ------------------------------------------------------------------ */
 
+export const USER_PLAYED_MATCHES_HISTORY_KEY = 'ff_user_played_matches_history_v1';
+
+export function getUserPlayedMatchesHistory(): UserBookedMatch[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(USER_PLAYED_MATCHES_HISTORY_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export function saveUserPlayedMatchesHistory(list: UserBookedMatch[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(USER_PLAYED_MATCHES_HISTORY_KEY, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent('ff_user_played_history_updated', { detail: list }));
+  } catch (e) {}
+}
+
 export function getUserBookedMatches(): UserBookedMatch[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -849,6 +899,22 @@ export function getUserBookedMatches(): UserBookedMatch[] {
     if (!raw) return [];
     const list = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
+
+    // Ensure all existing bookings are safely preserved in played history before any upcoming expiry
+    const history = getUserPlayedMatchesHistory();
+    const historyMap = new Map(history.map((h) => [h.matchId || h.id, h]));
+    let historyModified = false;
+    list.forEach((b: any) => {
+      const key = b.matchId || b.id;
+      if (key && !historyMap.has(key)) {
+        history.push(b);
+        historyMap.set(key, b);
+        historyModified = true;
+      }
+    });
+    if (historyModified) {
+      saveUserPlayedMatchesHistory(history);
+    }
 
     const now = Date.now();
     const EIGHT_MINUTES_MS = 8 * 60 * 1000;
@@ -864,7 +930,7 @@ export function getUserBookedMatches(): UserBookedMatch[] {
       if (b.roomDeliveredAt) {
         const deliveredMs = new Date(b.roomDeliveredAt).getTime();
         if (!isNaN(deliveredMs) && now - deliveredMs >= EIGHT_MINUTES_MS) {
-          return false; // Auto expired after 8 minutes!
+          return false; // Auto expired after 8 minutes from upcoming queue!
         }
       }
 
@@ -872,7 +938,6 @@ export function getUserBookedMatches(): UserBookedMatch[] {
       const matchDate = parseScheduleTimeToDate(b.time);
       if (matchDate) {
         const elapsedSinceMatch = now - matchDate.getTime();
-        // If match schedule start time + 2 minutes has passed, match has ended -> auto-expire!
         if (elapsedSinceMatch >= 2 * 60 * 1000) {
           return false;
         }
@@ -907,6 +972,20 @@ export function saveUserBookedMatches(list: UserBookedMatch[]): void {
   } catch (e) {}
 }
 
+export function isUserJoinedInMatch(matchId: string): boolean {
+  if (typeof window === 'undefined' || !matchId) return false;
+  try {
+    const booked = getUserBookedMatches();
+    if (booked.some((b) => b.matchId === matchId || b.id === matchId)) return true;
+    const rawJoined = localStorage.getItem('ff_user_joined_matches_v2');
+    if (rawJoined) {
+      const map = JSON.parse(rawJoined);
+      if (map && map[matchId]) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 export function addUserBooking(booking: Omit<UserBookedMatch, 'id' | 'bookedAt'>): UserBookedMatch {
   const current = getUserBookedMatches();
   const newEntry: UserBookedMatch = {
@@ -916,6 +995,12 @@ export function addUserBooking(booking: Omit<UserBookedMatch, 'id' | 'bookedAt'>
   };
   const updated = [newEntry, ...current];
   saveUserBookedMatches(updated);
+
+  // Also ensure it is persisted permanently in played match history
+  const history = getUserPlayedMatchesHistory();
+  const updatedHistory = [newEntry, ...history.filter((h) => h.matchId !== newEntry.matchId && h.id !== newEntry.id)];
+  saveUserPlayedMatchesHistory(updatedHistory);
+
   return newEntry;
 }
 
