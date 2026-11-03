@@ -20,18 +20,23 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL('https://ffrivalstourbd.shop'),
   title: {
-    default: 'FF RIVAL TOUR BD - বাংলাদেশ ফ্রি ফায়ার টুর্নামেন্ট ও কাস্টম রুম প্ল্যাটফর্ম',
+    default: 'FF RIVAL TOUR BD — বাংলাদেশ ফ্রি ফায়ার টুর্নামেন্ট সাইট ও অ্যাপ | Best Tournament Platform in BD',
     template: '%s | FF RIVAL TOUR BD',
   },
   description:
-    'FF RIVAL TOUR BD - বাংলাদেশের সেরা ফ্রি ফায়ার টুর্নামেন্ট ও এস্পোর্টস প্ল্যাটফর্ম। প্রতিদিন Classic Battle Royale, Clash Squad 4v4 এবং 1v1 Lone Wolf কাস্টম ম্যাচে অংশ নিন। ১০০% অ্যান্টি-চিট প্রোটেকশন ও বিকাশ-নগদে তাৎক্ষণিক উইনিং প্রাইজ উইথড্র।',
+    'FF RIVAL TOUR BD - বাংলাদেশের সেরা ফ্রি ফায়ার টুর্নামেন্ট সাইট ও এস্পোর্টস অ্যাপ (Bangladesh Tournament Site)। প্রতিদিন Classic BR, CS 4v4 এবং 1v1 Lone Wolf কাস্টম টুর্নামেন্ট। ১০০% অ্যান্টি-চিট ও বিকাশ-নগদে তাৎক্ষণিক ক্যাশআউট।',
   keywords: [
+    'bangladesh tournament site',
+    'bangladesh tournament app',
+    'free fire tournament site bangladesh',
+    'bd tournament site',
     'ffrivalstourbd.shop',
     'FF RIVAL TOUR BD',
     'FF Rivals Tour',
     'Free Fire Tournament Bangladesh',
     'free fire tournament bd',
     'ফ্রি ফায়ার টুর্নামেন্ট বাংলাদেশ',
+    'ফ্রি ফায়ার টুর্নামেন্ট সাইট',
     'ফ্রি ফায়ার কাস্টম রুম',
     'ff custom room bd',
     'ff clash squad tournament',
