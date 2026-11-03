@@ -317,99 +317,8 @@ export default function MobileAppViewPage(props: any) {
     } catch {}
   }, []);
 
-  // Pull-to-refresh state
-  const [isPulling, setIsPulling] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const touchStartYRef = React.useRef(0);
-  const pullDistRef = React.useRef(0);
-  const rafRef = React.useRef<number | null>(null);
+  // Pull-to-refresh completely removed as requested - all data updates instantly in real-time
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (scrollContainerRef.current && scrollContainerRef.current.scrollTop <= 2) {
-      touchStartYRef.current = e.touches[0].clientY;
-      pullDistRef.current = 0;
-    } else {
-      touchStartYRef.current = 0;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartYRef.current || isRefreshing) return;
-    const currentY = e.touches[0].clientY;
-    const diff = currentY - touchStartYRef.current;
-    if (diff > 0 && scrollContainerRef.current && scrollContainerRef.current.scrollTop <= 2) {
-      const dist = Math.min(65, diff * 0.4);
-      pullDistRef.current = dist;
-      if (!rafRef.current) {
-        rafRef.current = requestAnimationFrame(() => {
-          setPullDistance(pullDistRef.current);
-          setIsPulling(true);
-          rafRef.current = null;
-        });
-      }
-    } else if (diff < 0) {
-      touchStartYRef.current = 0;
-      pullDistRef.current = 0;
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      setIsPulling(false);
-      setPullDistance(0);
-    }
-  };
-
-  const handleTouchEnd = async () => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    const currentPull = pullDistRef.current || pullDistance;
-    if (currentPull > 35 && !isRefreshing) {
-      setIsRefreshing(true);
-      setPullDistance(35);
-      if (typeof window !== 'undefined') {
-        try {
-          const [usersRes] = await Promise.allSettled([
-            fetchUsersFromServer(),
-            fetch(`/api/cms?t=${Date.now()}`, { cache: 'no-store' }).then(async (res) => {
-              if (res.ok) {
-                const serverData = await res.json();
-                if (serverData && !serverData.error) {
-                  window.dispatchEvent(new CustomEvent('ff_cms_updated', { detail: serverData }));
-                }
-              }
-            }),
-          ]);
-
-          if (usersRes.status === 'fulfilled' && Array.isArray(usersRes.value)) {
-            const logged = getCurrentUser();
-            if (logged) {
-              const matched = usersRes.value.find(
-                (u) => u.id === logged.id || (u.phone && logged.phone && u.phone === logged.phone)
-              );
-              if (matched) {
-                setCurrentUser(matched);
-                setUserBalance(matched.walletBalance ?? 0);
-              }
-            }
-          }
-        } catch (e) {}
-        const cur = getCurrentUser();
-        if (cur) {
-          setCurrentUser(cur);
-          setUserBalance(cur.walletBalance ?? 0);
-        }
-      }
-      setIsRefreshing(false);
-    }
-    setIsPulling(false);
-    setPullDistance(0);
-    pullDistRef.current = 0;
-    touchStartYRef.current = 0;
-  };
 
   const uidDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1342,19 +1251,39 @@ export default function MobileAppViewPage(props: any) {
     if (list.length > 0) return list;
     return Object.values(INITIAL_CATEGORIES);
   }, [categories]);
-  const currentCategoryData = selectedCategory ? categories[selectedCategory] : null;
+  const currentCategoryData = React.useMemo(() => {
+    if (!selectedCategory) return null;
+    const normSlug = selectedCategory === 'lone-walf-headshot' ? 'lone-wolf-headshot' : selectedCategory;
+    return (
+      categories[selectedCategory] ||
+      categories[normSlug] ||
+      INITIAL_CATEGORIES[selectedCategory] ||
+      INITIAL_CATEGORIES[normSlug] ||
+      categoriesList.find((c) => c.slug === selectedCategory || c.slug === normSlug) ||
+      null
+    );
+  }, [selectedCategory, categories, categoriesList]);
+
   const currentCategoryMatches = React.useMemo(
-    () =>
-      selectedCategory
-        ? matches.filter((m) => m.categorySlug === selectedCategory && !isMatchFinished(m))
-        : [],
+    () => {
+      if (!selectedCategory) return [];
+      const normSlug = selectedCategory === 'lone-walf-headshot' ? 'lone-wolf-headshot' : selectedCategory;
+      return matches.filter((m) => {
+        const mNorm = m.categorySlug === 'lone-walf-headshot' ? 'lone-wolf-headshot' : m.categorySlug;
+        return (m.categorySlug === selectedCategory || mNorm === normSlug) && !isMatchFinished(m);
+      });
+    },
     [selectedCategory, matches]
   );
   const completedCategoryMatches = React.useMemo(
-    () =>
-      selectedCategory
-        ? matches.filter((m) => m.categorySlug === selectedCategory && isMatchFinished(m))
-        : [],
+    () => {
+      if (!selectedCategory) return [];
+      const normSlug = selectedCategory === 'lone-walf-headshot' ? 'lone-wolf-headshot' : selectedCategory;
+      return matches.filter((m) => {
+        const mNorm = m.categorySlug === 'lone-walf-headshot' ? 'lone-wolf-headshot' : m.categorySlug;
+        return (m.categorySlug === selectedCategory || mNorm === normSlug) && isMatchFinished(m);
+      });
+    },
     [selectedCategory, matches]
   );
 
@@ -1813,32 +1742,11 @@ export default function MobileAppViewPage(props: any) {
                   </div>
                 )}
 
-                {/* SCROLLABLE BODY with Touch Pull-to-Refresh */}
+                {/* SCROLLABLE BODY with smooth native scroll */}
                 <div
                   ref={scrollContainerRef}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
                   className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 relative overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y pb-24"
                 >
-                  {/* Pull-to-refresh spinner indicator (GPU accelerated, zero layout reflow) */}
-                  {(isPulling || isRefreshing) && (
-                    <div
-                      className="flex items-center justify-center overflow-hidden pointer-events-none will-change-transform"
-                      style={{
-                        height: '42px',
-                        marginTop: '-42px',
-                        transform: `translate3d(0, ${Math.min(pullDistance, 55)}px, 0)`,
-                        opacity: Math.min(1, pullDistance / 30),
-                        transition: isPulling ? 'none' : 'transform 0.25s ease-out, opacity 0.25s ease-out',
-                      }}
-                    >
-                      <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-900/90 text-white text-[11px] font-black shadow-xl border border-white/10 backdrop-blur-md">
-                        <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-                        <span>{isRefreshing ? 'রিফ্রেশ হচ্ছে...' : 'ছেড়ে দিলে রিফ্রেশ হবে'}</span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* FULL DETAILS PAGE (Screenshot 4, 3, 2, 1) */}
                   {matchDetailsScreen ? (
@@ -2394,10 +2302,14 @@ export default function MobileAppViewPage(props: any) {
                             }
 
                             const renderCard = (cat: any) => {
-                              const count = matches.filter((m) => m.categorySlug === cat.slug && !isMatchFinished(m)).length;
-                              const catImgSrc = (cat.bannerImage && !cat.bannerImage.includes('unsplash.com'))
+                              const normCatSlug = cat.slug === 'lone-walf-headshot' ? 'lone-wolf-headshot' : cat.slug;
+                              const count = matches.filter((m) => {
+                                const mNorm = m.categorySlug === 'lone-walf-headshot' ? 'lone-wolf-headshot' : m.categorySlug;
+                                return (m.categorySlug === cat.slug || mNorm === normCatSlug) && !isMatchFinished(m);
+                              }).length;
+                              const catImgSrc = (cat.bannerImage && !cat.bannerImage.includes('unsplash.com') && cat.bannerImage !== '/logo.png')
                                 ? cat.bannerImage
-                                : (INITIAL_CATEGORIES[cat.slug]?.bannerImage || cat.avatarImage || '/logo.png');
+                                : (INITIAL_CATEGORIES[cat.slug]?.bannerImage || INITIAL_CATEGORIES[normCatSlug]?.bannerImage || cat.avatarImage || '/logo.png');
                               return (
                                 <div
                                   key={cat.slug}
@@ -2412,7 +2324,7 @@ export default function MobileAppViewPage(props: any) {
                                     loading="eager"
                                     decoding="async"
                                     onError={(e) => {
-                                      (e.target as HTMLImageElement).src = INITIAL_CATEGORIES[cat.slug]?.bannerImage || '/logo.png';
+                                      (e.target as HTMLImageElement).src = INITIAL_CATEGORIES[cat.slug]?.bannerImage || INITIAL_CATEGORIES[normCatSlug]?.bannerImage || '/logo.png';
                                     }}
                                     className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform opacity-90"
                                   />
